@@ -112,7 +112,7 @@ namespace Monitor {
         float                       m_sdrSaturation    = 1.0f;
         float                       m_sdrBrightness    = 1.0f;
         float                       m_sdrMinLuminance  = 0.2f;
-        int                         m_sdrMaxLuminance  = 80;
+        int                         m_sdrMaxLuminance  = 0; // 0 = infer from EDID maxFALL
         bool                        m_createdByUser    = false;
         bool                        m_isUnsafeFallback = false;
 
@@ -341,6 +341,7 @@ namespace Monitor {
         bool                                                        gammaRampsInUse();
 
         std::optional<NColorManagement::PImageDescription>          getFSImageDescription();
+        NColorManagement::PImageDescription                         preferredClientImageDescription();
 
         NColorManagement::SPCPRimaries                              getMasteringPrimaries();
         NColorManagement::SImageDescription::SPCMasteringLuminances getMasteringLuminances();
@@ -395,6 +396,7 @@ namespace Monitor {
         void                clearModeRetry();
         void                updateVCGTRamps();
         bool                trySetFormat(std::span<const uint32_t> formats);
+        int                 inferredSdrMaxLuminance();
 
         bool                m_doneScheduled  = false;
         bool                m_vcgtRampsSet   = false;
