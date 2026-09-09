@@ -356,6 +356,8 @@ namespace NColorManagement {
                 return luminances.max;
             return sdrMaxLuminance >= 0 ? sdrMaxLuminance : luminances.max;
         };
+
+        float getContentMaxLuminance() const;
     };
 
     class CImageDescription {
