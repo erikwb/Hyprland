@@ -195,6 +195,7 @@ class CColorManagementProtocol : public IWaylandProtocol {
 
     void         onImagePreferredChanged(uint32_t preferredId);
     void         onMonitorImageDescriptionChanged(PHLMONITORREF monitor);
+    void         onPreferredImageDescriptionChanged();
 
     bool         isClientCMAware(wl_client* client);
 
