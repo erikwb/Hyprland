@@ -3431,7 +3431,7 @@ SP<ITexture> IHyprRenderer::renderSplash(const std::function<SP<ITexture>(const 
     return tex;
 }
 
-using ColorConversionKey = std::tuple<float, float, float, float, uint64_t>;
+using ColorConversionKey = std::tuple<float, float, float, float, uint64_t, float, int, float, float>;
 
 struct SColorConversionKeyHash {
     size_t operator()(const ColorConversionKey& key) const {
@@ -3442,11 +3442,7 @@ struct SColorConversionKeyHash {
         // distribute bits and reduce collisions between adjacent fields.
         const auto hashCombine = [&hash](const auto& value) { hash ^= std::hash<std::decay_t<decltype(value)>>{}(value) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2); };
 
-        hashCombine(std::get<0>(key));
-        hashCombine(std::get<1>(key));
-        hashCombine(std::get<2>(key));
-        hashCombine(std::get<3>(key));
-        hashCombine(std::get<4>(key));
+        std::apply([&](const auto&... values) { (hashCombine(values), ...); }, key);
 
         return hash;
     }
@@ -3472,7 +3468,18 @@ CHyprColor IHyprRenderer::getConvertedColor(const CHyprColor& color) {
     if (colorConversionCache.size() >= MAX_COLOR_CONVERSION_CACHE_SIZE)
         colorConversionCache.clear();
 
-    const ColorConversionKey key = {color.r, color.g, color.b, color.a, DESCR->id()};
+    const auto               monitor = m_renderData.pMonitor;
+    const ColorConversionKey key     = {
+        color.r,
+        color.g,
+        color.b,
+        color.a,
+        DESCR->id(),
+        monitor ? monitor->m_sdrMinLuminance : -1.0f,
+        monitor ? monitor->m_sdrMaxLuminance : -1,
+        monitor ? monitor->m_sdrSaturation : 1.0f,
+        monitor ? monitor->m_sdrBrightness : 1.0f,
+    };
 
     if (const auto IT = colorConversionCache.find(key); IT != colorConversionCache.end())
         return IT->second;

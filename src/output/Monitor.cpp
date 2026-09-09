@@ -620,6 +620,8 @@ void CMonitor::applyCMType(NCMType::eCMType cmType, NTransferFunction::eTF cmSdr
 }
 
 bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
+    const auto oldPreferredDescription = preferredClientImageDescription();
+
     m_activeMonitorRule = std::move(pMonitorRule);
     m_reservedArea.setStatic(m_activeMonitorRule.m_reservedArea);
     m_transform         = m_activeMonitorRule.m_transform;
@@ -667,6 +669,12 @@ bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
                 m_imageDescription = CImageDescription::from(SImageDescription{});
             }
         }
+    }
+
+    if (oldPreferredDescription != preferredClientImageDescription()) {
+        m_blurFBDirty = true;
+        if (PROTO::colorManagement)
+            PROTO::colorManagement->onPreferredImageDescriptionChanged();
     }
 
     Vector2D xfmd     = m_transform % 2 == 1 ? Vector2D{m_pixelSize.y, m_pixelSize.x} : m_pixelSize;
