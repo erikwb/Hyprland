@@ -22,6 +22,10 @@ vec4
               ,
               float srcRefLuminance
 #endif
+#if USE_MIRROR
+                       ,
+                       float captureMaxLuminance
+#endif
 #if USE_ICC
               ,
               highp sampler3D iccLut3D, float iccLutSize
@@ -110,6 +114,10 @@ vec4
 #if USE_TONEMAP || USE_MIRROR
                              ,
                              srcRefLuminance
+#endif
+#if USE_MIRROR
+                       ,
+                       captureMaxLuminance
 #endif
 #if USE_ICC
                              ,
