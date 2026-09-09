@@ -42,8 +42,13 @@ const mat3 ICtCpPQInv = mat3(                                                //
 // const mat3 ICtCpHLGInv = inverse(ICtCpHLG);
 
 vec4 tonemap(vec4 color, mat3 dstXYZ, float maxLuminance, float dstMaxLuminance, float dstRefLuminance, float srcRefLuminance, int tonemapMode) {
+    if (color.a <= 0.0)
+        return vec4(0.0);
+
+    // Tone curves operate on unassociated light; apply opacity afterwards.
+    color.rgb /= color.a;
     if (maxLuminance < dstMaxLuminance * 1.01 || tonemapMode == 2)
-        return vec4(clamp(color.rgb, vec3(0.0), vec3(dstMaxLuminance)), color[3]);
+        return vec4(clamp(color.rgb, vec3(0.0), vec3(dstMaxLuminance)) * color.a, color.a);
 
     mat3  toLMS   = BT2020toLMS * dstXYZ;
     mat3  fromLMS = inverse(dstXYZ) * LMStoBT2020;
@@ -77,5 +82,5 @@ vec4 tonemap(vec4 color, mat3 dstXYZ, float maxLuminance, float dstMaxLuminance,
 
     color = vec4(fromLMS * toLinear(vec4(ICtCpPQInv * ICtCp, 1.0), CM_TRANSFER_FUNCTION_ST2084_PQ).rgb * HDR_MAX_LUMINANCE, color[3]);
 
-    return clamp(color, 0.0, dstMaxLuminance);
+    return vec4(clamp(color.rgb, vec3(0.0), vec3(dstMaxLuminance)) * color.a, color.a);
 }

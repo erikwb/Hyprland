@@ -36,6 +36,22 @@ const SPCPRimaries& NColorManagement::getPrimaries(ePrimaries name) {
     }
 }
 
+float SImageDescription::getContentMaxLuminance() const {
+    const bool EXTENDED = transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR || transferFunction == CM_TRANSFER_FUNCTION_EXT_SRGB;
+    const bool HDR      = EXTENDED || transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || transferFunction == CM_TRANSFER_FUNCTION_HLG;
+    if (!HDR || isInternal)
+        return luminances.max;
+
+    const float ENCODING_MAX = EXTENDED ? HDR_MAX_LUMINANCE : getTFMaxLuminance();
+    // Zero means unknown. Discard metadata outside the encoding range; a dark
+    // scene can legitimately have MaxCLL below reference white.
+    if (maxCLL > 0 && maxCLL <= ENCODING_MAX)
+        return maxCLL;
+    if (masteringLuminances.max > 0 && masteringLuminances.max <= ENCODING_MAX)
+        return masteringLuminances.max;
+    return ENCODING_MAX;
+}
+
 CPrimaries::CPrimaries(const SPCPRimaries& primaries, const uint32_t primariesId) : m_id(primariesId), m_primaries(primaries) {
     m_primaries2XYZ = m_primaries.toXYZ();
 }

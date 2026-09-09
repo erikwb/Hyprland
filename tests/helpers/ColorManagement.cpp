@@ -18,9 +18,11 @@ TEST(ColorManagement, PQEncodingRangeIsIndependentOfContentPeak) {
     const SImageDescription DESC{
         .transferFunction = CM_TRANSFER_FUNCTION_ST2084_PQ,
         .luminances       = {.min = 0.1f, .max = 1000, .reference = 308},
+        .maxCLL           = 308,
     };
     EXPECT_FLOAT_EQ(DESC.getTFMinLuminance(), 0.1f);
     EXPECT_FLOAT_EQ(DESC.getTFMaxLuminance(), 10000.1f);
+    EXPECT_FLOAT_EQ(DESC.getContentMaxLuminance(), 308.0f);
 }
 
 TEST(ColorManagement, WindowsAndInternalLinearRetainEightyNitUnits) {
@@ -38,10 +40,26 @@ TEST(ColorManagement, WindowsAndInternalLinearRetainEightyNitUnits) {
     }
 }
 
+TEST(ColorManagement, ContentPeakPrefersCLLThenMasteringThenEncoding) {
+    auto desc                    = DEFAULT_HDR_IMAGE_DESCRIPTION->value();
+    desc.masteringLuminances.max = 1000;
+    desc.maxCLL                  = 600;
+    EXPECT_FLOAT_EQ(desc.getContentMaxLuminance(), 600.0f);
+    desc.maxCLL = 0;
+    EXPECT_FLOAT_EQ(desc.getContentMaxLuminance(), 1000.0f);
+    desc.maxCLL = 100; // Dark scenes can peak below reference white.
+    EXPECT_FLOAT_EQ(desc.getContentMaxLuminance(), 100.0f);
+    desc.maxCLL = 20000;
+    EXPECT_FLOAT_EQ(desc.getContentMaxLuminance(), 1000.0f);
+    desc.masteringLuminances.max = 0;
+    EXPECT_FLOAT_EQ(desc.getContentMaxLuminance(), desc.getTFMaxLuminance());
+}
+
 TEST(ColorManagement, SDRRangeOverridesRemainSupported) {
     const auto& DESC = DEFAULT_SRGB_IMAGE_DESCRIPTION->value();
     EXPECT_FLOAT_EQ(DESC.getTFMinLuminance(0.01f), 0.01f);
     EXPECT_FLOAT_EQ(DESC.getTFMaxLuminance(308), 308.0f);
+    EXPECT_FLOAT_EQ(DESC.getContentMaxLuminance(), 80.0f);
 }
 
 TEST(ColorManagement, GenericLinearDefaultsAreNotWindowsSCRGB) {
