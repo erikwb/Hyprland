@@ -104,6 +104,10 @@ void main() {
                           ,
                           srcRefLuminance
 #endif
+#if USE_MIRROR
+                       ,
+                       captureMaxLuminance
+#endif
 #if USE_ICC
                           ,
                           iccLut3D, iccLutSize

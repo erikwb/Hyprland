@@ -2016,6 +2016,7 @@ SCMSettings IHyprRenderer::getCMSettings(const NColorManagement::PImageDescripti
                             .max = targetImageDescription->value().getTFMaxLuminance(needsSDRmod ? sdrMaxLuminance : -1)},
         .srcRefLuminance = imageDescription->value().luminances.reference,
         .dstRefLuminance = targetImageDescription->value().luminances.reference,
+        .capturePeak     = imageDescription->value().getContentMaxLuminance(),
         .convertMatrix   = matrix.mat(),
 
         .needsTonemap            = tonemapMode != 0 && needsTonemap,
