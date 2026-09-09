@@ -225,6 +225,7 @@ namespace NColorManagement {
         eTransferFunction    transferFunction      = CM_TRANSFER_FUNCTION_GAMMA22;
         float                transferFunctionPower = 1.0f;
         bool                 isWindows             = false;
+        bool                 isInternal            = false;
 
         bool                 primariesNameSet = false;
         ePrimaries           primariesNamed   = CM_PRIMARIES_SRGB;
@@ -267,7 +268,7 @@ namespace NColorManagement {
             if (icc.present || d2.icc.present)
                 return false;
 
-            return isWindows == d2.isWindows && transferFunction == d2.transferFunction && transferFunctionPower == d2.transferFunctionPower &&
+            return isWindows == d2.isWindows && isInternal == d2.isInternal && transferFunction == d2.transferFunction && transferFunctionPower == d2.transferFunctionPower &&
                 (primariesNameSet == d2.primariesNameSet && (primariesNameSet ? primariesNamed == d2.primariesNamed : primaries == d2.primaries)) &&
                 masteringPrimaries == d2.masteringPrimaries && luminances == d2.luminances && masteringLuminances == d2.masteringLuminances && maxCLL == d2.maxCLL &&
                 maxFALL == d2.maxFALL;
@@ -279,9 +280,9 @@ namespace NColorManagement {
             return primaries;
         }
 
-        float getTFMinLuminance(float sdrMinLuminance = -1.0f) const {
+        float getDefaultTFMinLuminance(float sdrMinLuminance = -1.0f) const {
             switch (transferFunction) {
-                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return 0;
+                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return SDR_MIN_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ:
                 case CM_TRANSFER_FUNCTION_HLG: return HDR_MIN_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_BT1886: return 0.01;
@@ -298,10 +299,9 @@ namespace NColorManagement {
             }
         };
 
-        float getTFMaxLuminance(int sdrMaxLuminance = -1) const {
+        float getDefaultTFMaxLuminance(int sdrMaxLuminance = -1) const {
             switch (transferFunction) {
-                case CM_TRANSFER_FUNCTION_EXT_LINEAR:
-                    return SDR_MAX_LUMINANCE; // assume Windows scRGB. white color range 1.0 - 125.0 maps to SDR_MAX_LUMINANCE (80) - HDR_MAX_LUMINANCE (10000)
+                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return SDR_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ: return HDR_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_HLG: return HLG_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_BT1886: return 100;
@@ -320,7 +320,7 @@ namespace NColorManagement {
 
         float getTFRefLuminance(int sdrRefLuminance = -1) const {
             switch (transferFunction) {
-                case CM_TRANSFER_FUNCTION_EXT_LINEAR:
+                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return SDR_REF_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ:
                 case CM_TRANSFER_FUNCTION_HLG: return HDR_REF_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_BT1886: return 100;
@@ -335,6 +335,26 @@ namespace NColorManagement {
                 case CM_TRANSFER_FUNCTION_SRGB:
                 default: return sdrRefLuminance >= 0 ? sdrRefLuminance : SDR_REF_LUMINANCE;
             }
+        };
+
+        float getTFMinLuminance(float sdrMinLuminance = -1.0f) const {
+            if (transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR && (isWindows || isInternal))
+                return 0.0f;
+            if (transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || transferFunction == CM_TRANSFER_FUNCTION_HLG || transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR)
+                return luminances.min;
+            return sdrMinLuminance >= 0.0f ? sdrMinLuminance : luminances.min;
+        };
+
+        float getTFMaxLuminance(int sdrMaxLuminance = -1) const {
+            // PQ always spans 10000 cd/m², irrespective of set_luminances' max_lum.
+            if (transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ)
+                return getTFMinLuminance() + HDR_MAX_LUMINANCE;
+            // Windows scRGB and our FP16 work buffers use 80 nits per linear unit.
+            if (transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR && (isWindows || isInternal))
+                return SDR_MAX_LUMINANCE;
+            if (transferFunction == CM_TRANSFER_FUNCTION_HLG || transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR)
+                return luminances.max;
+            return sdrMaxLuminance >= 0 ? sdrMaxLuminance : luminances.max;
         };
     };
 
@@ -430,6 +450,7 @@ namespace NColorManagement {
 
     inline const auto LINEAR_IMAGE_DESCRIPTION = CImageDescription::from(SImageDescription{
         .transferFunction = NColorManagement::CM_TRANSFER_FUNCTION_EXT_LINEAR,
+        .isInternal       = true,
         .primariesNameSet = true,
         .primariesNamed   = NColorManagement::CM_PRIMARIES_SRGB,
         .primaries        = NColorPrimaries::BT709,
