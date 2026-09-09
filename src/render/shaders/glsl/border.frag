@@ -49,6 +49,10 @@ void main() {
 #if USE_CM
                   ,
                   sourceTF, targetTF, convertMatrix, srcTFRange, dstTFRange
+#if USE_TONEMAP || USE_MIRROR
+                  ,
+                  srcRefLuminance
+#endif
 #if USE_ICC
                   ,
                   iccLut3D, iccLutSize
@@ -59,7 +63,7 @@ void main() {
 #endif
 #if USE_TONEMAP
                   ,
-                  maxLuminance, dstMaxLuminance, dstRefLuminance, srcRefLuminance, tonemapMode
+                  maxLuminance, dstMaxLuminance, dstRefLuminance, tonemapMode
 #endif
 #if USE_SDR_MOD
                   ,
