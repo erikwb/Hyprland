@@ -569,8 +569,8 @@ CColorManagementParametricCreator::CColorManagementParametricCreator(SP<CWpImage
 
         if ((m_valuesSet & PC_TF) && !(m_valuesSet & PC_LUMINANCES)) {
             m_settings.luminances = {
-                .min       = m_settings.getTFMinLuminance(),
-                .max       = m_settings.getTFMaxLuminance(),
+                .min       = m_settings.getDefaultTFMinLuminance(),
+                .max       = m_settings.getDefaultTFMaxLuminance(),
                 .reference = m_settings.getTFRefLuminance(),
             };
         }
