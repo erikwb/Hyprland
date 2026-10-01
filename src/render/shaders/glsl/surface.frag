@@ -66,6 +66,9 @@ const mat3 targetPrimariesXYZ = mat3(0.0);
 layout(location = 0) out vec4 fragColor;
 #if USE_MIRROR
 layout(location = 1) out vec4 mirrorColor;
+#if USE_CM
+uniform bool captureOnly;
+#endif
 #endif
 void main() {
 #if USE_MOTION_BLUR
@@ -100,6 +103,14 @@ void main() {
     pixColor =
 #endif
         doColorManagement(pixColor, alpha, sourceTF, targetTF, convertMatrix, srcTFRange, dstTFRange, 0.0
+#if USE_TONEMAP || USE_MIRROR
+                          ,
+                          srcRefLuminance
+#endif
+#if USE_MIRROR
+                       ,
+                       captureMaxLuminance
+#endif
 #if USE_ICC
                           ,
                           iccLut3D, iccLutSize
@@ -110,7 +121,7 @@ void main() {
 #endif
 #if USE_TONEMAP
                           ,
-                          maxLuminance, dstMaxLuminance, dstRefLuminance, srcRefLuminance, tonemapMode
+                          maxLuminance, dstMaxLuminance, dstRefLuminance, tonemapMode
 #endif
 #if USE_SDR_MOD
                           ,
@@ -121,7 +132,7 @@ void main() {
 #endif
 #if USE_MIRROR
 #if USE_CM
-    pixColor    = pixColors[0];
+    pixColor    = captureOnly ? pixColor * alpha : pixColors[0];
     mirrorColor = pixColors[1];
 #else
     mirrorColor = pixColor;

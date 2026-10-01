@@ -2702,7 +2702,8 @@ bool CMonitor::needsUnmodifiedCopy() {
     const bool HAS_MODS = m_sdrMinLuminance != SDR_MIN_LUMINANCE || m_sdrMaxLuminance != SDR_MAX_LUMINANCE || (m_sdrBrightness > 0 && m_sdrBrightness != 1.0) ||
         (m_sdrSaturation > 0 && m_sdrSaturation != 1.0);
 
-    if (!HAS_MODS)
+    // Auto still needs HDR capture conversion when SDR controls are unchanged.
+    if (!HAS_MODS && *PKEEP != 2)
         return false;
 
     // TODO handle some FP16 cases
