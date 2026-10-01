@@ -418,6 +418,7 @@ CColorManagementFeedbackSurface::CColorManagementFeedbackSurface(SP<CWpColorMana
 
         RESOURCE->m_self     = RESOURCE;
         RESOURCE->m_settings = m_surface->getPreferredImageDescription();
+        m_currentPreferredId = RESOURCE->m_settings->id();
 
         RESOURCE->sendMaybeReady();
     });
@@ -457,17 +458,21 @@ CColorManagementFeedbackSurface::CColorManagementFeedbackSurface(SP<CWpColorMana
 }
 
 void CColorManagementFeedbackSurface::onPreferredChanged() {
-    if (m_surface->m_enteredOutputs.size() == 1) {
-        const auto newId = m_surface->getPreferredImageDescription()->id();
-        if (m_currentPreferredId != newId) {
-            const uint32_t lo = sc<uint32_t>(newId & 0xFFFFFFFF);
-            const uint32_t hi = sc<uint32_t>(newId >> 32);
-            if (m_resource->version() > 1)
-                m_resource->sendPreferredChanged2(hi, lo);
-            else if (!hi)
-                m_resource->sendPreferredChanged(lo);
-        }
-    }
+    if (m_surface.expired())
+        return;
+
+    const auto newId = m_surface->getPreferredImageDescription()->id();
+    if (m_currentPreferredId == newId)
+        return;
+
+    m_currentPreferredId = newId;
+
+    const uint32_t lo = sc<uint32_t>(newId & 0xFFFFFFFF);
+    const uint32_t hi = sc<uint32_t>(newId >> 32);
+    if (m_resource->version() > 1)
+        m_resource->sendPreferredChanged2(hi, lo);
+    else if (!hi)
+        m_resource->sendPreferredChanged(lo);
 }
 
 bool CColorManagementFeedbackSurface::good() {
@@ -897,7 +902,10 @@ void CColorManagementProtocol::onMonitorImageDescriptionChanged(PHLMONITORREF mo
         if (output->m_output && output->m_output->m_monitor == monitor)
             output->m_resource->sendImageDescriptionChanged();
     }
-    // recheck feedbacks
+    onPreferredImageDescriptionChanged();
+}
+
+void CColorManagementProtocol::onPreferredImageDescriptionChanged() {
     for (auto const& feedback : m_feedbackSurfaces)
         feedback->onPreferredChanged();
 }
