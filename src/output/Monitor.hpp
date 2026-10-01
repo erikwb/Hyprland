@@ -341,6 +341,7 @@ namespace Monitor {
         bool                                                        gammaRampsInUse();
 
         std::optional<NColorManagement::PImageDescription>          getFSImageDescription();
+        NColorManagement::PImageDescription                         preferredClientImageDescription();
 
         NColorManagement::SPCPRimaries                              getMasteringPrimaries();
         NColorManagement::SImageDescription::SPCMasteringLuminances getMasteringLuminances();
