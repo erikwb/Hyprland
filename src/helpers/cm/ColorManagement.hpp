@@ -282,9 +282,9 @@ namespace NColorManagement {
 
         float getContentMaxLuminance(float fallback) const;
 
-        float getTFMinLuminance(float sdrMinLuminance = -1.0f) const {
+        float getDefaultTFMinLuminance(float sdrMinLuminance = -1.0f) const {
             switch (transferFunction) {
-                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return isWindows ? 0.0f : luminances.min;
+                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return SDR_MIN_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ:
                 case CM_TRANSFER_FUNCTION_HLG: return HDR_MIN_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_BT1886: return 0.01;
@@ -301,11 +301,9 @@ namespace NColorManagement {
             }
         };
 
-        float getTFMaxLuminance(int sdrMaxLuminance = -1) const {
+        float getDefaultTFMaxLuminance(int sdrMaxLuminance = -1) const {
             switch (transferFunction) {
-                case CM_TRANSFER_FUNCTION_EXT_LINEAR:
-                    // Windows scRGB uses a fixed 80-nit scale, independently of the luminance metadata.
-                    return isWindows ? SDR_MAX_LUMINANCE : luminances.max;
+                case CM_TRANSFER_FUNCTION_EXT_LINEAR: return SDR_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ: return HDR_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_HLG: return HLG_MAX_LUMINANCE;
                 case CM_TRANSFER_FUNCTION_BT1886: return 100;
@@ -339,6 +337,27 @@ namespace NColorManagement {
                 case CM_TRANSFER_FUNCTION_SRGB:
                 default: return sdrRefLuminance >= 0 ? sdrRefLuminance : SDR_REF_LUMINANCE;
             }
+        };
+
+        float getTFMinLuminance(float sdrMinLuminance = -1.0f) const {
+            if (transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR && isWindows)
+                return 0.0f;
+            if (transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || transferFunction == CM_TRANSFER_FUNCTION_HLG || transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR)
+                return luminances.min;
+            return sdrMinLuminance >= 0.0f ? sdrMinLuminance : luminances.min;
+        };
+
+        float getTFMaxLuminance(int sdrMaxLuminance = -1) const {
+            // PQ has a fixed ~10000 cd/m² swing irrespective of set_luminances' max_lum; use the
+            // default swing so the default description still ends at exactly 10000 cd/m².
+            if (transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ)
+                return getTFMinLuminance() + (HDR_MAX_LUMINANCE - HDR_MIN_LUMINANCE);
+            // Windows scRGB and the internal FP16 work buffers use 80 nits per linear unit.
+            if (transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR && isWindows)
+                return SDR_MAX_LUMINANCE;
+            if (transferFunction == CM_TRANSFER_FUNCTION_HLG || transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR)
+                return luminances.max;
+            return sdrMaxLuminance >= 0 ? sdrMaxLuminance : luminances.max;
         };
     };
 
