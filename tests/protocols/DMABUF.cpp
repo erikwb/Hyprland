@@ -1491,6 +1491,7 @@ TEST_F(CRenderLifecycleTest, ColorManagementPreservesDeclaredRangeOnHDR) {
         EXPECT_FLOAT_EQ(SETTINGS.srcTFRange.min, 0.0f);
         EXPECT_FLOAT_EQ(SETTINGS.srcTFRange.max, 600.0f);
         EXPECT_FLOAT_EQ(SETTINGS.srcRefLuminance, 203.0f);
+        EXPECT_FLOAT_EQ(SETTINGS.maxLuminance, 600.0f);
     }
 }
 
@@ -1510,6 +1511,8 @@ TEST_F(CRenderLifecycleTest, ColorManagementMapsSDRBlackAndReferenceWhite) {
         EXPECT_FLOAT_EQ(SETTINGS.srcTFRange.min, 0.1f);
         EXPECT_NEAR(SETTINGS.srcTFRange.min + WHITE * (SETTINGS.srcTFRange.max - SETTINGS.srcTFRange.min), 250.0f, 0.0001f);
         EXPECT_FLOAT_EQ(SETTINGS.srcRefLuminance, 250.0f);
+        EXPECT_FLOAT_EQ(SETTINGS.maxLuminance, SETTINGS.srcTFRange.max);
+        EXPECT_TRUE(SETTINGS.needsTonemap);
 
         const auto UNMODIFIED = renderer().getCMSettings(ctx, SOURCE, TARGET, nullptr, false, 0.1f, 250);
         EXPECT_FLOAT_EQ(UNMODIFIED.srcTFRange.min, 0.2f);
