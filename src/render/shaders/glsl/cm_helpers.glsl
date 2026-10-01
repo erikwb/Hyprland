@@ -8,6 +8,9 @@
 #include "defines.h"
 #include "constants.h"
 
+uniform vec3 srcLumaCoeffs;
+uniform vec3 dstLumaCoeffs;
+
 #if USE_SDR_MOD
 vec4 saturate(vec4 color, mat3 primaries, float saturation) {
     if (saturation == 1.0)
@@ -45,7 +48,10 @@ vec3 tfInvHLG(vec3 color) {
     bvec3 isLow = lessThanEqual(color.rgb, vec3(HLG_E_CUT));
     vec3  lo    = color.rgb * color.rgb / 3.0;
     vec3  hi    = (exp((color.rgb - HLG_C) / HLG_A) + HLG_B) / 12.0;
-    return mix(hi, lo, isLow);
+    vec3  scene = mix(hi, lo, isLow);
+    // BT.2100 reference-display OOTF, gamma 1.2 at 1000 nits.
+    float Y = dot(scene, srcLumaCoeffs);
+    return scene * pow(max(Y, 0.0), 0.2);
 }
 
 // Many transfer functions (including sRGB) follow the same pattern: a linear
@@ -89,6 +95,11 @@ vec3 tfPQ(vec3 color) {
 }
 
 vec3 tfHLG(vec3 color) {
+    // Undo the reference-display OOTF before applying the OETF.
+    float Y = dot(color, dstLumaCoeffs);
+    if (Y <= 0.0)
+        return vec3(0.0);
+    color *= pow(Y, -1.0 / 6.0);
     bvec3 isLow = lessThanEqual(color.rgb, vec3(HLG_D_CUT));
     vec3  lo    = sqrt(max(color.rgb, vec3(0.0)) * 3.0);
     vec3  hi    = HLG_A * log(max(12.0 * color.rgb - HLG_B, vec3(0.0001))) + HLG_C;
