@@ -619,6 +619,8 @@ void CMonitor::applyCMType(NCMType::eCMType cmType, NTransferFunction::eTF cmSdr
 }
 
 bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
+    const auto OLD_PREFERRED_DESCRIPTION = preferredClientImageDescription();
+
     m_activeMonitorRule = std::move(pMonitorRule);
     m_reservedArea.setStatic(m_activeMonitorRule.m_reservedArea);
     m_transform         = m_activeMonitorRule.m_transform;
@@ -663,6 +665,12 @@ bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
                 m_imageDescription = CImageDescription::from(SImageDescription{});
             }
         }
+    }
+
+    if (OLD_PREFERRED_DESCRIPTION != preferredClientImageDescription()) {
+        m_blurFBDirty = true;
+        if (PROTO::colorManagement)
+            PROTO::colorManagement->onPreferredImageDescriptionChanged();
     }
 
     Vector2D xfmd     = m_transform % 2 == 1 ? Vector2D{m_pixelSize.y, m_pixelSize.x} : m_pixelSize;
@@ -2380,6 +2388,28 @@ float CMonitor::maxFALL() {
 
 float CMonitor::maxCLL() {
     return m_maxLuminance >= 0 ? m_maxLuminance : (m_output->parsedEDID.hdrMetadata.has_value() ? m_output->parsedEDID.hdrMetadata->desiredContentMaxLuminance : 0);
+}
+
+PImageDescription CMonitor::preferredClientImageDescription() {
+    const auto& DESC = m_imageDescription->value();
+    const bool  HDR_LIKE =
+        DESC.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || DESC.transferFunction == CM_TRANSFER_FUNCTION_HLG || DESC.transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR;
+    if (!HDR_LIKE)
+        return m_imageDescription;
+
+    // Advertise the compositor blending encoding, not the PQ wire format.
+    // Hyprland composites SDR in sRGB-primaries; keeping BT.2020/EDID here makes Chromium
+    // tag wide-gamut on sRGB UI pixels, which desaturates after the extra matrix.
+    // max == reference so encoded 1.0 is SDR white, matching toNit(sdr_max_luminance).
+    const int         SDR_WHITE     = m_sdrMaxLuminance > 0 ? m_sdrMaxLuminance : sc<int>(SDR_REF_LUMINANCE);
+    SImageDescription preferred     = DESC;
+    preferred.transferFunction      = CM_TRANSFER_FUNCTION_GAMMA22;
+    preferred.transferFunctionPower = 1.0f;
+    preferred.primariesNameSet      = true;
+    preferred.primariesNamed        = CM_PRIMARIES_SRGB;
+    preferred.primaries             = NColorPrimaries::BT709;
+    preferred.luminances            = {.min = 0, .max = sc<uint32_t>(SDR_WHITE), .reference = sc<uint32_t>(SDR_WHITE)};
+    return CImageDescription::from(preferred);
 }
 
 bool CMonitor::wantsWideColor() {
