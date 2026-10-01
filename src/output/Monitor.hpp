@@ -342,6 +342,7 @@ namespace Monitor {
 
         std::optional<NColorManagement::PImageDescription>          getFSImageDescription();
         std::optional<NColorManagement::PImageDescription>          getAutoHDRImageDescription(const SP<CWLSurfaceResource>& surface);
+        NColorManagement::PImageDescription                         preferredClientImageDescription();
 
         NColorManagement::SPCPRimaries                              getMasteringPrimaries();
         NColorManagement::SImageDescription::SPCMasteringLuminances getMasteringLuminances();
