@@ -16,6 +16,7 @@ TEST(Config, monitorParserDefaults) {
     EXPECT_EQ(parser.rule().m_resolution, Vector2D());                   // preferred
     EXPECT_EQ(parser.rule().m_offset, Vector2D(-INT32_MAX, -INT32_MAX)); // auto
     EXPECT_FLOAT_EQ(parser.rule().m_scale, -1.0f);                       // auto
+    EXPECT_EQ(parser.rule().m_sdrMaxLuminance, 0);
     EXPECT_FALSE(parser.getError().has_value());
 }
 
