@@ -10,6 +10,9 @@
 
 uniform vec3 srcLumaCoeffs;
 uniform vec3 dstLumaCoeffs;
+#if USE_MIRROR
+uniform mat3 captureMatrix;
+#endif
 
 #if USE_SDR_MOD
 vec4 saturate(vec4 color, mat3 primaries, float saturation) {
@@ -221,6 +224,14 @@ vec4[2]
 vec4
 #endif
     doColorManagement(vec4 pixColor, float additionalAlpha, int srcTF, int dstTF, mat3 convertMatrix, vec2 srcTFRange, vec2 dstTFRange, float linearNoise
+#if USE_TONEMAP || USE_MIRROR
+                       ,
+                       float srcRefLuminance
+#endif
+#if USE_MIRROR
+                       ,
+                       float captureMaxLuminance
+#endif
 #if USE_ICC
                       ,
                       highp sampler3D iccLut3D, float iccLutSize
@@ -231,7 +242,7 @@ vec4
 #endif
 #if USE_TONEMAP
                        ,
-                       float maxLuminance, float dstMaxLuminance, float dstRefLuminance, float srcRefLuminance, int tonemapMode
+                       float maxLuminance, float dstMaxLuminance, float dstRefLuminance, int tonemapMode
 #endif
 #if USE_SDR_MOD
                        ,
@@ -256,14 +267,40 @@ vec4
         pixColor = toNit(pixColor, srcTFRange);
     pixColor.a   = finalAlpha;
     pixColor.rgb *= pixColor.a;
+#if USE_MIRROR
+    // HDR clients encode SDR white at their reference luminance, not necessarily 80 nits.
+    // Capture before monitor tone mapping, keeping reference white independent of the display.
+    vec2 mirrorRange = vec2(SDR_MIN_LUMINANCE, SDR_MAX_LUMINANCE);
+    if (srcTF == CM_TRANSFER_FUNCTION_GAMMA22 || srcTF == CM_TRANSFER_FUNCTION_SRGB || srcTF == CM_TRANSFER_FUNCTION_ST2084_PQ ||
+        srcTF == CM_TRANSFER_FUNCTION_HLG || srcTF == CM_TRANSFER_FUNCTION_EXT_LINEAR || srcTF == CM_TRANSFER_FUNCTION_EXT_SRGB)
+        mirrorRange = vec2(srcTFRange.x, srcRefLuminance > srcTFRange.x ? srcRefLuminance : srcTFRange.x + SDR_MAX_LUMINANCE);
+
+    vec4 captureColor = pixColor;
+#if USE_MIRROR
+    captureColor.rgb = captureMatrix * captureColor.rgb;
+#endif
+    captureColor.rgb -= mirrorRange.x * finalAlpha;
+    float captureSpan = mirrorRange.y - mirrorRange.x;
+    float peak = (captureMaxLuminance - mirrorRange.x) / captureSpan;
+    // Gamma/sRGB descriptions can also reserve encoding headroom above reference white.
+    bool hdrCapture = srcTFRange.y > mirrorRange.y || srcTF == CM_TRANSFER_FUNCTION_ST2084_PQ || srcTF == CM_TRANSFER_FUNCTION_HLG ||
+                      srcTF == CM_TRANSFER_FUNCTION_EXT_LINEAR || srcTF == CM_TRANSFER_FUNCTION_EXT_SRGB;
+    if (hdrCapture && peak > 1.01 && finalAlpha > 0.0) {
+        // Keep shadows and midtones unchanged. A continuous shoulder reserves SDR
+        // headroom for HDR highlights; scaling RGB together preserves their hue.
+        float channelMax = max(max(captureColor.r, captureColor.g), captureColor.b) / (finalAlpha * captureSpan);
+        const float KNEE = 0.75;
+        if (channelMax > KNEE) {
+            float x = min(channelMax, peak) - KNEE;
+            float shoulder = 1.0 / (1.0 - KNEE) - 1.0 / (peak - KNEE);
+            float mapped = KNEE + x / (1.0 + shoulder * x);
+            captureColor.rgb *= mapped / channelMax;
+        }
+    }
+    vec4 mirrorColor = fromLinearNit(captureColor, CM_TRANSFER_FUNCTION_SRGB, vec2(0.0, captureSpan));
+#endif
 #if USE_TONEMAP
     pixColor = tonemap(pixColor, dstxyz, maxLuminance, dstMaxLuminance, dstRefLuminance, srcRefLuminance, tonemapMode);
-#endif
-
-#if USE_MIRROR
-    // TODO HDR -> SDR tonemap
-    vec4 mirrorColor = fromLinearNit(pixColor, CM_TRANSFER_FUNCTION_SRGB,
-                                     srcTF == CM_TRANSFER_FUNCTION_GAMMA22 || srcTF == CM_TRANSFER_FUNCTION_SRGB ? srcTFRange : vec2(SDR_MIN_LUMINANCE, SDR_MAX_LUMINANCE));
 #endif
     pixColor = fromLinearNit(pixColor, dstTF, dstTFRange);
 #if USE_SDR_MOD

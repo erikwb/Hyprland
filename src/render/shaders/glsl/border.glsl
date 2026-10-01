@@ -18,6 +18,14 @@ vec4
 #if USE_CM
               ,
               int sourceTF, int targetTF, mat3 convertMatrix, vec2 srcTFRange, vec2 dstTFRange
+#if USE_TONEMAP || USE_MIRROR
+              ,
+              float srcRefLuminance
+#endif
+#if USE_MIRROR
+                       ,
+                       float captureMaxLuminance
+#endif
 #if USE_ICC
               ,
               highp sampler3D iccLut3D, float iccLutSize
@@ -28,7 +36,7 @@ vec4
 #endif
 #if USE_TONEMAP
               ,
-              float maxLuminance, float dstMaxLuminance, float dstRefLuminance, float srcRefLuminance, int tonemapMode
+              float maxLuminance, float dstMaxLuminance, float dstRefLuminance, int tonemapMode
 #endif
 #if USE_SDR_MOD
               ,
@@ -103,6 +111,14 @@ vec4
 
 #if USE_CM
     return doColorManagement(pixColor, alpha * additionalAlpha, sourceTF, targetTF, convertMatrix, srcTFRange, dstTFRange, 0.0
+#if USE_TONEMAP || USE_MIRROR
+                             ,
+                             srcRefLuminance
+#endif
+#if USE_MIRROR
+                       ,
+                       captureMaxLuminance
+#endif
 #if USE_ICC
                              ,
                              iccLut3D, iccLutSize
@@ -113,7 +129,7 @@ vec4
 #endif
 #if USE_TONEMAP
                              ,
-                             maxLuminance, dstMaxLuminance, dstRefLuminance, srcRefLuminance, tonemapMode
+                             maxLuminance, dstMaxLuminance, dstRefLuminance, tonemapMode
 #endif
 #if USE_SDR_MOD
                              ,
