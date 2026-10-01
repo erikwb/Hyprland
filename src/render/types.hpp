@@ -119,6 +119,7 @@ namespace Render {
         STFRange                             dstTFRange;
         float                                srcRefLuminance = 80;
         float                                dstRefLuminance = 80;
+        float                                capturePeak     = 80;
         std::array<std::array<double, 3>, 3> convertMatrix;
 
         bool                                 needsTonemap    = false;

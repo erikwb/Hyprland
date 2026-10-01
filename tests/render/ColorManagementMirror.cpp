@@ -46,6 +46,8 @@ class CColorManagementMirrorTest : public testing::Test {
     void TearDown() override;
     void createProgram(bool mirror, bool tonemap = false, std::string_view fragment = "surface.frag", eTransferFunction sourceTF = CM_TRANSFER_FUNCTION_SRGB,
                        eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR, bool altTonemap = false);
+    void checkPixel(eTransferFunction tf, float reference, float sourceMax, float encoded, float expected, float alpha = 1.0f, bool tonemap = false, float capturePeak = 0.0f,
+                    float redRatio = 1.0f);
 
     // Linear monitor-output checks.
     void                 setPrimaries(ePrimaries source, ePrimaries target);
@@ -153,6 +155,66 @@ void CColorManagementMirrorTest::createProgram(bool mirror, bool tonemap, std::s
     glUseProgram(m_program);
 }
 
+void CColorManagementMirrorTest::checkPixel(eTransferFunction tf, float reference, float sourceMax, float encoded, float expected, float alpha, bool tonemap, float capturePeak,
+                                            float redRatio) {
+    SCOPED_TRACE(std::format("tf={}, reference={}, encoded={}, alpha={}", sc<int>(tf), reference, encoded, alpha));
+    std::array<float, 4> monitorWithMirror = {};
+    for (bool mirror : {true, false}) {
+        ASSERT_NO_FATAL_FAILURE(createProgram(mirror, tonemap, "surface.frag", tf));
+        const std::array<float, 4> PIXEL = {encoded * alpha * redRatio, encoded * alpha, encoded * alpha, alpha};
+        glBindTexture(GL_TEXTURE_2D, m_textures.at(0));
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, PIXEL.data());
+        glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+        glUniform1f(glGetUniformLocation(m_program, "alpha"), 1.0f);
+        glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), reference);
+        glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), capturePeak > 0.0f ? capturePeak : reference);
+        glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, sourceMax);
+        glUniform2f(glGetUniformLocation(m_program, "dstTFRange"), 0.0f, 10000.0f);
+        setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+        glUniform1f(glGetUniformLocation(m_program, "maxLuminance"), 1000.0f);
+        glUniform1f(glGetUniformLocation(m_program, "dstMaxLuminance"), 518.0f);
+        glUniform1f(glGetUniformLocation(m_program, "dstRefLuminance"), 203.0f);
+        glUniform1i(glGetUniformLocation(m_program, "tonemapMode"), 1);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        std::array<float, 4> monitor = {};
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, monitor.data());
+        if (!mirror) {
+            for (size_t i = 0; i < monitor.size(); ++i)
+                EXPECT_NEAR(monitor.at(i), monitorWithMirror.at(i), 0.0001f);
+            continue;
+        }
+        monitorWithMirror            = monitor;
+        std::array<float, 4> capture = {};
+        glReadBuffer(GL_COLOR_ATTACHMENT1);
+        glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, capture.data());
+        for (size_t i = 0; i < 3; ++i) {
+            float expectedChannel = expected;
+            if (i == 0 && redRatio != 1.0f) {
+                // Color-ratio checks use linear sources: decode the expected SDR
+                // value before applying the source's channel ratio.
+                const float LINEAR = expected <= 0.04045f ? expected / 12.92f : std::pow((expected + 0.055f) / 1.055f, 2.4f);
+                const float RED    = LINEAR * redRatio;
+                expectedChannel    = RED <= 0.0031308f ? RED * 12.92f : (1.055f * std::pow(RED, 1.0f / 2.4f)) - 0.055f;
+            }
+            EXPECT_NEAR(capture.at(i), expectedChannel * alpha, 0.002f);
+        }
+        EXPECT_NEAR(capture.at(3), alpha, 0.0001f);
+        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, PQReferenceWhiteAndMidtones) {
+    for (float reference : {80.0f, 203.0f, 308.0f, 500.0f}) {
+        for (float srgb : {0.0f, 0.125f, 0.25f, 0.5f, 0.75f, 1.0f}) {
+            const float LINEAR = srgb <= 0.04045f ? srgb / 12.92f : std::pow((srgb + 0.055f) / 1.055f, 2.4f);
+            const float SCALED = std::pow(LINEAR * reference / 10000.0f, 0.1593017578125f);
+            const float PQ     = std::pow((0.8359375f + (18.8515625f * SCALED)) / (1.0f + (18.6875f * SCALED)), 78.84375f);
+            checkPixel(CM_TRANSFER_FUNCTION_ST2084_PQ, reference, 10000.0f, PQ, srgb);
+        }
+    }
+}
+
 TEST_F(CColorManagementMirrorTest, WindowsPQBlackUsesHDRFloor) {
     ASSERT_NO_FATAL_FAILURE(setupMonitor(CM_TRANSFER_FUNCTION_ST2084_PQ));
     const auto& DESC = BT2100_IMAGE_DESCRIPTION->value();
@@ -162,6 +224,18 @@ TEST_F(CColorManagementMirrorTest, WindowsPQBlackUsesHDRFloor) {
         for (size_t i = 0; i < 3; ++i)
             EXPECT_NEAR(RESULT.at(i), HDR_MIN_LUMINANCE * alpha, 0.00001f);
     }
+}
+
+TEST_F(CColorManagementMirrorTest, LinearHDRReferenceWhiteAndTransparency) {
+    for (float alpha : {0.0f, 0.25f, 0.5f, 1.0f})
+        checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 308.0f, 80.0f, 308.0f / 80.0f, 1.0f, alpha);
+}
+
+TEST_F(CColorManagementMirrorTest, HLGReferenceWhite) {
+    // Invert the reference-display OOTF before applying the HLG OETF.
+    const float SCENE = std::pow(0.308f, 1.0f / 1.2f);
+    const float HLG   = (0.17883277f * std::log((12.0f * SCENE) - 0.28466892f)) + 0.55991073f;
+    checkPixel(CM_TRANSFER_FUNCTION_HLG, 308.0f, 1000.0f, HLG, 1.0f);
 }
 
 void CColorManagementMirrorTest::setupMonitor(eTransferFunction tf, int tonemapMode, eTransferFunction targetTF) {
@@ -351,4 +425,71 @@ TEST_F(CColorManagementMirrorTest, ClippedMonitorPreservesAlpha) {
 
 TEST_F(CColorManagementMirrorTest, AlternateTonemappedMonitorPreservesAlpha) {
     checkMonitorAlpha(3);
+}
+
+TEST_F(CColorManagementMirrorTest, SDRIgnoresHDRReferenceWhite) {
+    checkPixel(CM_TRANSFER_FUNCTION_SRGB, 308.0f, 308.0f, 0.5f, 0.5f);
+    checkPixel(CM_TRANSFER_FUNCTION_GAMMA22, 308.0f, 308.0f, std::pow(0.21404114f, 1.0f / 2.2f), 0.5f);
+}
+
+TEST_F(CColorManagementMirrorTest, MissingReferenceWhiteIsFinite) {
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 0.0f, 80.0f, 1.0f, 1.0f);
+}
+
+TEST_F(CColorManagementMirrorTest, TonemappingVariantsCompile) {
+    for (auto sourceTF : {CM_TRANSFER_FUNCTION_SRGB, CM_TRANSFER_FUNCTION_ST2084_PQ, CM_TRANSFER_FUNCTION_HLG, CM_TRANSFER_FUNCTION_EXT_LINEAR}) {
+        for (auto targetTF : {CM_TRANSFER_FUNCTION_LINEAR, CM_TRANSFER_FUNCTION_SRGB, CM_TRANSFER_FUNCTION_ST2084_PQ, CM_TRANSFER_FUNCTION_HLG}) {
+            SCOPED_TRACE(std::format("sourceTF={}, targetTF={}", sc<int>(sourceTF), sc<int>(targetTF)));
+            for (auto fragment : {"surface.frag", "border.frag"}) {
+                ASSERT_NO_FATAL_FAILURE(createProgram(true, false, fragment, sourceTF, targetTF));
+                ASSERT_NO_FATAL_FAILURE(createProgram(true, true, fragment, sourceTF, targetTF));
+                ASSERT_NO_FATAL_FAILURE(createProgram(false, true, fragment, sourceTF, targetTF));
+            }
+            ASSERT_NO_FATAL_FAILURE(createProgram(false, false, "blurfinish.frag", sourceTF, targetTF));
+            ASSERT_NO_FATAL_FAILURE(createProgram(false, false, "blurprepare.frag", sourceTF, targetTF));
+        }
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, ExtendedSRGBReferenceWhite) {
+    const float ENCODED = (1.055f * std::pow(308.0f / 80.0f, 1.0f / 2.4f)) - 0.055f;
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_SRGB, 308.0f, 80.0f, ENCODED, 1.0f);
+}
+
+TEST_F(CColorManagementMirrorTest, MonitorTonemappingDoesNotChangeCapture) {
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 308.0f, 80.0f, 308.0f / 80.0f, 1.0f, 1.0f, true);
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 308.0f, 80.0f, 308.0f * 0.21404114f / 80.0f, 0.5f, 1.0f, true);
+}
+
+TEST_F(CColorManagementMirrorTest, HDRHighlightsRemainDistinctAndPreserveHue) {
+    // At 4x reference white, the peak is white. Intermediate highlights retain
+    // detail, while a 50% sRGB midtone is unchanged by the shoulder.
+    for (float alpha : {0.0f, 0.25f, 0.5f, 1.0f}) {
+        checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 250.0f, 80.0f, 250.0f * 0.21404114f / 80.0f, 0.5f, alpha, false, 1000.0f);
+        checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 250.0f, 80.0f, 250.0f / 80.0f, 0.9452769f, alpha, false, 1000.0f, 0.5f);
+        checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 250.0f, 80.0f, 500.0f / 80.0f, 0.98785897f, alpha, false, 1000.0f, 0.5f);
+        checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 250.0f, 80.0f, 1000.0f / 80.0f, 1.0f, alpha, false, 1000.0f, 0.5f);
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, SDRCaptureDoesNotUseHDRShoulder) {
+    checkPixel(CM_TRANSFER_FUNCTION_SRGB, 80.0f, 80.0f, 1.0f, 1.0f, 1.0f, false, 1000.0f);
+}
+
+TEST_F(CColorManagementMirrorTest, ParametricLinearWhiteUsesDeclaredEncodingRange) {
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 308.0f, 308.0f, 1.0f, 1.0f);
+    checkPixel(CM_TRANSFER_FUNCTION_EXT_LINEAR, 308.0f, 1000.0f, 0.308f, 1.0f);
+}
+
+TEST_F(CColorManagementMirrorTest, ExtendedSDRCaptureUsesProductionPeak) {
+    for (auto tf : {CM_TRANSFER_FUNCTION_EXT_LINEAR, CM_TRANSFER_FUNCTION_EXT_SRGB}) {
+        for (uint32_t reference : {80U, 308U}) {
+            const SImageDescription DESC{
+                .transferFunction = tf,
+                .luminances       = {.min = 0, .max = reference, .reference = reference},
+            };
+            for (float alpha : {0.25f, 1.0f})
+                checkPixel(tf, reference, DESC.getTFMaxLuminance(), 1.0f, 1.0f, alpha, false, DESC.getContentMaxLuminance());
+        }
+    }
 }

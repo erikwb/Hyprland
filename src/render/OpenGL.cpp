@@ -1284,6 +1284,7 @@ void CHyprOpenGLImpl::passCMUniforms(WP<CShader> shader, const NColorManagement:
         shader->setUniformFloat3(SHADER_DST_LUMA_COEFFS, Y.at(0), Y.at(1), Y.at(2));
     }
     shader->setUniformFloat(SHADER_SRC_REF_LUMINANCE, settings.srcRefLuminance);
+    shader->setUniformFloat(SHADER_CAPTURE_PEAK, settings.capturePeak);
     shader->setUniformFloat(SHADER_DST_REF_LUMINANCE, settings.dstRefLuminance);
     shader->setUniformFloat(SHADER_MAX_LUMINANCE, settings.maxLuminance);
     shader->setUniformFloat(SHADER_DST_MAX_LUMINANCE, settings.dstMaxLuminance);
