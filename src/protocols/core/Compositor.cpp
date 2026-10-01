@@ -720,7 +720,7 @@ PImageDescription CWLSurfaceResource::getPreferredImageDescription() {
     else if (m_hlSurface.valid() && WINDOW)
         monitor = WINDOW->m_monitor;
 
-    return monitor ? monitor->m_imageDescription : g_pCompositor->getPreferredImageDescription();
+    return monitor ? monitor->preferredClientImageDescription() : g_pCompositor->getPreferredImageDescription();
 }
 
 void CWLSurfaceResource::sortSubsurfaces() {

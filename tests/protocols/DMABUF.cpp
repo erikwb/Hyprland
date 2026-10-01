@@ -775,6 +775,24 @@ class CRenderLifecycleTest : public CDMABUFBufferTest {
     UP<Config::CConfigWatcher>           m_previousWatcher;
 };
 
+TEST_F(CRenderLifecycleTest, PreferredSDRDescriptionOmitsHDRMetadata) {
+    using namespace NColorManagement;
+    auto desc                     = DEFAULT_HDR_IMAGE_DESCRIPTION->value();
+    desc.masteringLuminances      = {.min = HDR_MIN_LUMINANCE, .max = 1060};
+    desc.maxCLL                   = 1060;
+    desc.maxFALL                  = 400;
+    m_monitor->m_imageDescription = CImageDescription::from(desc);
+    m_monitor->m_sdrMaxLuminance  = 203;
+
+    const auto& PREFERRED = m_monitor->preferredClientImageDescription()->value();
+    EXPECT_EQ(PREFERRED.transferFunction, CM_TRANSFER_FUNCTION_GAMMA22);
+    EXPECT_EQ(PREFERRED.luminances.max, 203u);
+    EXPECT_EQ(PREFERRED.luminances.reference, 203u);
+    EXPECT_EQ(PREFERRED.masteringLuminances.max, 0u);
+    EXPECT_EQ(PREFERRED.maxCLL, 0u);
+    EXPECT_EQ(PREFERRED.maxFALL, 0u);
+}
+
 TEST_F(CRenderLifecycleTest, IsolatedBlurSelectionNeverReadsOrCompletesMonitorBlur) {
     const auto monitorResources = m_monitor->resources();
     const auto monitorTexture   = monitorResources->m_blurFB->getTexture();
