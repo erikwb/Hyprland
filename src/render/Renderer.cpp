@@ -2126,7 +2126,21 @@ SCMSettings IHyprRenderer::getCMSettings(CRenderContext& ctx, const NColorManage
     } else
         srcTF = imageDescription->value().transferFunction;
 
-    const bool  needsSDRmod     = modifySDR && isSDR2HDR(ctx, imageDescription->value(), targetImageDescription->value());
+    const bool needsSDRmod       = modifySDR && isSDR2HDR(ctx, imageDescription->value(), targetImageDescription->value());
+    auto       srcTFRange        = STFRange{.min = imageDescription->value().getTFMinLuminance(), .max = imageDescription->value().getTFMaxLuminance()};
+    float      srcRefLuminance   = imageDescription->value().luminances.reference;
+    float      sdrLuminanceScale = 1.0f;
+    if (needsSDRmod && srcRefLuminance > srcTFRange.min) {
+        const float MIN = sdrMinLuminance >= 0 ? sdrMinLuminance : srcTFRange.min;
+        const float REF = sdrMaxLuminance > 0 ? sdrMaxLuminance : srcRefLuminance;
+        if (REF > MIN) {
+            // Map black and reference white without replacing the client's encoding range.
+            sdrLuminanceScale = (REF - MIN) / (srcRefLuminance - srcTFRange.min);
+            srcTFRange        = {.min = MIN, .max = MIN + (srcTFRange.max - srcTFRange.min) * sdrLuminanceScale};
+            srcRefLuminance   = REF;
+        }
+    }
+
     const bool  needsHDRmod     = !needsSDRmod && isHDR2SDR(imageDescription->value(), targetImageDescription->value());
     const float maxLuminance    = needsHDRmod ?
         imageDescription->value().getTFMaxLuminance(-1) :
@@ -2145,11 +2159,10 @@ SCMSettings IHyprRenderer::getCMSettings(CRenderContext& ctx, const NColorManage
     auto       result = SCMSettings{
         .sourceTF        = srcTF,
         .targetTF        = targetImageDescription->value().transferFunction,
-        .srcTFRange      = {.min = imageDescription->value().getTFMinLuminance(needsSDRmod ? sdrMinLuminance : -1),
-                            .max = imageDescription->value().getTFMaxLuminance(needsSDRmod ? sdrMaxLuminance : -1)},
+        .srcTFRange      = srcTFRange,
         .dstTFRange      = {.min = targetImageDescription->value().getTFMinLuminance(needsSDRmod ? sdrMinLuminance : -1),
                             .max = targetImageDescription->value().getTFMaxLuminance(needsSDRmod ? sdrMaxLuminance : -1)},
-        .srcRefLuminance = imageDescription->value().luminances.reference,
+        .srcRefLuminance = srcRefLuminance,
         .dstRefLuminance = targetImageDescription->value().luminances.reference,
         .convertMatrix   = matrix.mat(),
 
