@@ -51,6 +51,7 @@ class CColorManagementMirrorTest : public testing::Test {
     void                 setPrimaries(ePrimaries source, ePrimaries target);
     void                 setupMonitor(eTransferFunction tf, int tonemapMode = 0, eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR);
     std::array<float, 4> readMonitor(const std::array<float, 4>& pixel, float windowAlpha = 1.0f);
+    void                 checkHLGReference(bool encode);
 
     // Offscreen GL resources.
     EGLDisplay            m_display  = EGL_NO_DISPLAY;
@@ -179,8 +180,13 @@ void CColorManagementMirrorTest::setupMonitor(eTransferFunction tf, int tonemapM
 void CColorManagementMirrorTest::setPrimaries(ePrimaries source, ePrimaries target) {
     const auto SRC    = CPrimaries::from(source);
     const auto DST    = CPrimaries::from(target);
+    auto       srcXYZ = SRC->toXYZ();
     auto       dstXYZ = DST->toXYZ();
     auto       matrix = SRC->convertMatrix(DST);
+    const auto SRC_Y  = srcXYZ.mat().at(1);
+    const auto DST_Y  = dstXYZ.mat().at(1);
+    glUniform3f(glGetUniformLocation(m_program, "srcLumaCoeffs"), SRC_Y.at(0), SRC_Y.at(1), SRC_Y.at(2));
+    glUniform3f(glGetUniformLocation(m_program, "dstLumaCoeffs"), DST_Y.at(0), DST_Y.at(1), DST_Y.at(2));
     const auto           CONVERT = matrix.mat();
     const auto           XYZ     = dstXYZ.mat();
     std::array<float, 9> convert = {}, xyz = {};
@@ -205,4 +211,90 @@ std::array<float, 4> CColorManagementMirrorTest::readMonitor(const std::array<fl
     glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, result.data());
     EXPECT_EQ(glGetError(), GL_NO_ERROR);
     return result;
+}
+
+void CColorManagementMirrorTest::checkHLGReference(bool encode) {
+    // Independent BT.2100 reference values: inverse OETF, then
+    // RGB_display = 1000 * RGB_scene * Y_scene^0.2, with BT.2020 Y weights
+    // (0.2627, 0.6780, 0.0593). Zero black, 1000-nit peak, gamma 1.2.
+    // EBU R 167 table 1.1 also gives 203 nits for the 75% neutral patch:
+    // https://tech.ebu.ch/files/live/sites/tech/files/shared/r/r167.pdf
+    struct SReference {
+        std::array<float, 3> signal;
+        std::array<float, 3> nits;
+    };
+    const std::array<SReference, 9> REFERENCES = {{
+        {.signal = {0.0f, 0.0f, 0.0f}, .nits = {0.0f, 0.0f, 0.0f}},
+        {.signal = {0.25f, 0.25f, 0.25f}, .nits = {9.605291f, 9.605291f, 9.605291f}},
+        {.signal = {0.5f, 0.5f, 0.5f}, .nits = {50.697028f, 50.697028f, 50.697028f}},
+        {.signal = {0.75f, 0.75f, 0.75f}, .nits = {203.152145f, 203.152145f, 203.152145f}},
+        {.signal = {1.0f, 1.0f, 1.0f}, .nits = {1000.0f, 1000.0f, 1000.0f}},
+        {.signal = {0.75f, 0.0f, 0.0f}, .nits = {155.493925f, 0.0f, 0.0f}},
+        {.signal = {0.0f, 0.75f, 0.0f}, .nits = {0.0f, 187.960829f, 0.0f}},
+        {.signal = {0.0f, 0.0f, 0.75f}, .nits = {0.0f, 0.0f, 115.460212f}},
+        {.signal = {0.75f, 0.5f, 0.25f}, .nits = {175.460037f, 55.183909f, 13.795977f}},
+    }};
+    ASSERT_NO_FATAL_FAILURE(setupMonitor(encode ? CM_TRANSFER_FUNCTION_EXT_LINEAR : CM_TRANSFER_FUNCTION_HLG, 0, encode ? CM_TRANSFER_FUNCTION_HLG : CM_TRANSFER_FUNCTION_LINEAR));
+    for (const auto& REFERENCE : REFERENCES) {
+        SCOPED_TRACE(std::format("HLG signal {}, {}, {}", REFERENCE.signal.at(0), REFERENCE.signal.at(1), REFERENCE.signal.at(2)));
+        for (float alpha : {0.0f, 0.25f, 0.5f, 1.0f}) {
+            SCOPED_TRACE(std::format("alpha={}", alpha));
+            const auto& INPUT    = encode ? REFERENCE.nits : REFERENCE.signal;
+            const auto& EXPECTED = encode ? REFERENCE.signal : REFERENCE.nits;
+            const float SCALE    = encode ? 80.0f : 1.0f;
+            const auto  RESULT   = readMonitor({INPUT.at(0) * alpha / SCALE, INPUT.at(1) * alpha / SCALE, INPUT.at(2) * alpha / SCALE, alpha});
+            for (size_t i = 0; i < 3; ++i)
+                EXPECT_NEAR(RESULT.at(i), EXPECTED.at(i) * alpha, encode ? 0.0002f : 0.05f);
+            EXPECT_NEAR(RESULT.at(3), alpha, 0.00001f);
+        }
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, HLGMonitorMatchesReferenceDisplay) {
+    checkHLGReference(false);
+}
+
+TEST_F(CColorManagementMirrorTest, HLGEncodingMatchesReferenceDisplay) {
+    checkHLGReference(true);
+}
+
+TEST_F(CColorManagementMirrorTest, HLGUsesImagePrimaries) {
+    struct SReference {
+        ePrimaries           primaries;
+        std::array<float, 3> luminance;
+    };
+    // Y rows of the D65 RGB-to-XYZ matrices (lin_sRGB_to_XYZ and lin_P3_to_XYZ):
+    // https://www.w3.org/TR/css-color-4/#color-conversion-code
+    // Keep these reference values independent of the production matrix calculation.
+    const std::array<SReference, 2> REFERENCES = {{
+        {CM_PRIMARIES_SRGB, {0.21263901f, 0.71516868f, 0.07219232f}},
+        {CM_PRIMARIES_DISPLAY_P3, {0.22897456f, 0.69173852f, 0.07928691f}},
+    }};
+    // BT.2100-2 Table 5: inverse HLG OETF, (exp((signal - c) / a) + b) / 12.
+    // b = 1 - 4a; c = 0.5 - a * ln(4a). The test signal is 75% encoded intensity.
+    // https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2100-2-201807-S!!PDF-E.pdf
+    constexpr float HLG_A       = 0.17883277f;
+    constexpr float HLG_B       = 0.28466892f;
+    constexpr float HLG_C       = 0.55991073f;
+    constexpr float TEST_SIGNAL = 0.75f;
+    const float     SCENE       = (std::exp((TEST_SIGNAL - HLG_C) / HLG_A) + HLG_B) / 12.0f;
+    for (const auto& REFERENCE : REFERENCES) {
+        for (bool encode : {false, true}) {
+            SCOPED_TRACE(std::format("primaries={}, encode={}", sc<int>(REFERENCE.primaries), encode));
+            ASSERT_NO_FATAL_FAILURE(
+                setupMonitor(encode ? CM_TRANSFER_FUNCTION_EXT_LINEAR : CM_TRANSFER_FUNCTION_HLG, 0, encode ? CM_TRANSFER_FUNCTION_HLG : CM_TRANSFER_FUNCTION_LINEAR));
+            setPrimaries(REFERENCE.primaries, REFERENCE.primaries);
+            for (size_t channel = 0; channel < 3; ++channel) {
+                // Table 5 reference-display OOTF: 1000-nit peak, gamma 1.2 (exponent gamma - 1).
+                const float NITS = 1000.0f * SCENE * std::pow(REFERENCE.luminance.at(channel) * SCENE, 0.2f);
+                for (float alpha : {0.25f, 1.0f}) {
+                    std::array<float, 4> pixel = {0, 0, 0, alpha};
+                    pixel.at(channel)          = (encode ? NITS / 80.0f : TEST_SIGNAL) * alpha;
+                    const auto RESULT          = readMonitor(pixel);
+                    for (size_t i = 0; i < 3; ++i)
+                        EXPECT_NEAR(RESULT.at(i), i == channel ? (encode ? TEST_SIGNAL : NITS) * alpha : 0.0f, encode ? 0.0002f : 0.05f);
+                }
+            }
+        }
+    }
 }
