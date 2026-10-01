@@ -67,6 +67,7 @@
 #include <ranges>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
 using namespace Hyprutils::String;
 using namespace Hyprutils::Utils;
@@ -647,6 +648,9 @@ bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
         m_minLuminance    = m_activeMonitorRule.m_minLuminance;
         m_maxLuminance    = m_activeMonitorRule.m_maxLuminance;
         m_maxAvgLuminance = m_activeMonitorRule.m_maxAvgLuminance;
+
+        if (m_sdrMaxLuminance <= 0)
+            m_sdrMaxLuminance = inferredSdrMaxLuminance();
 
         applyCMType(m_cmType, m_sdrEotf);
 
@@ -2390,6 +2394,13 @@ float CMonitor::maxCLL() {
     return m_maxLuminance >= 0 ? m_maxLuminance : (m_output->parsedEDID.hdrMetadata.has_value() ? m_output->parsedEDID.hdrMetadata->desiredContentMaxLuminance : 0);
 }
 
+int CMonitor::inferredSdrMaxLuminance() {
+    const int FALL = sc<int>(std::lround(maxFALL()));
+    if (FALL <= 0)
+        return sc<int>(HDR_REF_LUMINANCE);
+    return std::clamp(FALL, 200, 500);
+}
+
 PImageDescription CMonitor::preferredClientImageDescription() {
     const auto& DESC = m_imageDescription->value();
     const bool  HDR_LIKE =
@@ -2401,7 +2412,7 @@ PImageDescription CMonitor::preferredClientImageDescription() {
     // Hyprland composites SDR in sRGB-primaries; keeping BT.2020/EDID here makes Chromium
     // tag wide-gamut on sRGB UI pixels, which desaturates after the extra matrix.
     // max == reference so encoded 1.0 is SDR white, matching toNit(sdr_max_luminance).
-    const int         SDR_WHITE     = m_sdrMaxLuminance > 0 ? m_sdrMaxLuminance : sc<int>(SDR_REF_LUMINANCE);
+    const int         SDR_WHITE     = m_sdrMaxLuminance > 0 ? m_sdrMaxLuminance : inferredSdrMaxLuminance();
     SImageDescription preferred     = DESC;
     preferred.transferFunction      = CM_TRANSFER_FUNCTION_GAMMA22;
     preferred.transferFunctionPower = 1.0f;
