@@ -51,6 +51,7 @@ class CColorManagementMirrorTest : public testing::Test {
     void                 setPrimaries(ePrimaries source, ePrimaries target);
     void                 setupMonitor(eTransferFunction tf, int tonemapMode = 0, eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR);
     std::array<float, 4> readMonitor(const std::array<float, 4>& pixel, float windowAlpha = 1.0f);
+    void                 checkMonitorAlpha(int tonemapMode);
     void                 checkHLGReference(bool encode);
 
     // Offscreen GL resources.
@@ -297,4 +298,57 @@ TEST_F(CColorManagementMirrorTest, HLGUsesImagePrimaries) {
             }
         }
     }
+}
+
+void CColorManagementMirrorTest::checkMonitorAlpha(int tonemapMode) {
+    for (auto tf : {CM_TRANSFER_FUNCTION_ST2084_PQ, CM_TRANSFER_FUNCTION_EXT_LINEAR}) {
+        ASSERT_NO_FATAL_FAILURE(setupMonitor(tf, tonemapMode));
+        for (const auto& NITS : {std::array{0.0f, 0.0f, 0.0f}, std::array{50.0f, 50.0f, 50.0f}, std::array{1000.0f, 1000.0f, 1000.0f}, std::array{1000.0f, 400.0f, 100.0f}}) {
+            SCOPED_TRACE(std::format("mode={}, tf={}, RGB nits={}, {}, {}", tonemapMode, sc<int>(tf), NITS.at(0), NITS.at(1), NITS.at(2)));
+            std::array<float, 4> pixel = {0.0f, 0.0f, 0.0f, 1.0f};
+            for (size_t i = 0; i < 3; ++i) {
+                if (tf == CM_TRANSFER_FUNCTION_EXT_LINEAR) {
+                    pixel.at(i) = NITS.at(i) / 80.0f;
+                    continue;
+                }
+                const double P = std::pow(NITS.at(i) / 10000.0, 2610.0 / 16384.0);
+                pixel.at(i)    = std::pow(((3424.0 / 4096.0) + (2413.0 / 128.0 * P)) / (1.0 + (2392.0 / 128.0 * P)), 2523.0 / 32.0);
+            }
+            const auto OPAQUE = readMonitor(pixel);
+            for (size_t i = 0; i < 3; ++i) {
+                ASSERT_TRUE(std::isfinite(OPAQUE.at(i)));
+                ASSERT_TRUE(NITS.at(i) == 0.0f || OPAQUE.at(i) > 0.0f);
+                if (tonemapMode == 0)
+                    continue;
+                EXPECT_LE(OPAQUE.at(i), 500.05f);
+            }
+            for (float sourceAlpha : {0.0f, 0.25f, 0.5f, 1.0f}) {
+                for (float windowAlpha : {0.0f, 0.25f, 0.5f, 1.0f}) {
+                    SCOPED_TRACE(std::format("source alpha={}, window alpha={}", sourceAlpha, windowAlpha));
+                    const auto RESULT = readMonitor({pixel.at(0) * sourceAlpha, pixel.at(1) * sourceAlpha, pixel.at(2) * sourceAlpha, sourceAlpha}, windowAlpha);
+                    // Compare against an opaque invocation of the real shader;
+                    // do not duplicate its tone curve as the expected result.
+                    for (size_t i = 0; i < 3; ++i)
+                        EXPECT_NEAR(RESULT.at(i), OPAQUE.at(i) * sourceAlpha * windowAlpha, 0.1f);
+                    EXPECT_NEAR(RESULT.at(3), sourceAlpha * windowAlpha, 0.00001f);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, LinearMonitorPreservesAlpha) {
+    checkMonitorAlpha(0);
+}
+
+TEST_F(CColorManagementMirrorTest, TonemappedMonitorPreservesAlpha) {
+    checkMonitorAlpha(1);
+}
+
+TEST_F(CColorManagementMirrorTest, ClippedMonitorPreservesAlpha) {
+    checkMonitorAlpha(2);
+}
+
+TEST_F(CColorManagementMirrorTest, AlternateTonemappedMonitorPreservesAlpha) {
+    checkMonitorAlpha(3);
 }
