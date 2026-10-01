@@ -226,6 +226,7 @@ namespace NColorManagement {
         eTransferFunction    transferFunction      = CM_TRANSFER_FUNCTION_GAMMA22;
         float                transferFunctionPower = 1.0f;
         bool                 isWindows             = false;
+        bool                 isInternal            = false; // compositor work buffer; only affects the content peak
 
         bool                 primariesNameSet = false;
         ePrimaries           primariesNamed   = CM_PRIMARIES_SRGB;
@@ -268,7 +269,7 @@ namespace NColorManagement {
             if (icc.present || d2.icc.present)
                 return false;
 
-            return isWindows == d2.isWindows && transferFunction == d2.transferFunction && transferFunctionPower == d2.transferFunctionPower &&
+            return isWindows == d2.isWindows && isInternal == d2.isInternal && transferFunction == d2.transferFunction && transferFunctionPower == d2.transferFunctionPower &&
                 (primariesNameSet == d2.primariesNameSet && (primariesNameSet ? primariesNamed == d2.primariesNamed : primaries == d2.primaries)) &&
                 masteringPrimaries == d2.masteringPrimaries && luminances == d2.luminances && masteringLuminances == d2.masteringLuminances && maxCLL == d2.maxCLL &&
                 maxFALL == d2.maxFALL;
@@ -357,6 +358,8 @@ namespace NColorManagement {
                 return luminances.max;
             return sdrMaxLuminance >= 0 ? sdrMaxLuminance : luminances.max;
         };
+
+        float getContentMaxLuminance() const;
     };
 
     class CImageDescription {
@@ -453,6 +456,7 @@ namespace NColorManagement {
         .transferFunction = NColorManagement::CM_TRANSFER_FUNCTION_EXT_LINEAR,
         // Keep scRGB's 80-nit encoding independently of the monitor's luminance metadata.
         .isWindows        = true,
+        .isInternal       = true,
         .primariesNameSet = true,
         .primariesNamed   = NColorManagement::CM_PRIMARIES_SRGB,
         .primaries        = NColorPrimaries::BT709,
