@@ -133,6 +133,8 @@ void CShader::getUniformLocations() {
     // shader has #include "CM.glsl"
     m_uniformLocations[SHADER_SRC_TF_RANGE]         = getUniform("srcTFRange");
     m_uniformLocations[SHADER_DST_TF_RANGE]         = getUniform("dstTFRange");
+    m_uniformLocations.at(SHADER_SRC_LUMA_COEFFS)   = getUniform("srcLumaCoeffs");
+    m_uniformLocations.at(SHADER_DST_LUMA_COEFFS)   = getUniform("dstLumaCoeffs");
     m_uniformLocations[SHADER_TARGET_PRIMARIES_XYZ] = getUniform("targetPrimariesXYZ");
     m_uniformLocations[SHADER_MAX_LUMINANCE]        = getUniform("maxLuminance");
     m_uniformLocations[SHADER_SRC_REF_LUMINANCE]    = getUniform("srcRefLuminance");
