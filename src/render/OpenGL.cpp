@@ -1274,6 +1274,15 @@ void CHyprOpenGLImpl::passCMUniforms(WP<CShader> shader, const NColorManagement:
                                      const SCMSettings& settings) {
     shader->setUniformFloat2(SHADER_SRC_TF_RANGE, settings.srcTFRange.min, settings.srcTFRange.max);
     shader->setUniformFloat2(SHADER_DST_TF_RANGE, settings.dstTFRange.min, settings.dstTFRange.max);
+    if (settings.sourceTF == CM_TRANSFER_FUNCTION_HLG) {
+        auto        xyz = imageDescription->getPrimaries()->toXYZ();
+        const auto& Y   = xyz.mat().at(1);
+        shader->setUniformFloat3(SHADER_SRC_LUMA_COEFFS, Y.at(0), Y.at(1), Y.at(2));
+    }
+    if (settings.targetTF == CM_TRANSFER_FUNCTION_HLG) {
+        const auto& Y = settings.dstPrimaries2XYZ.at(1);
+        shader->setUniformFloat3(SHADER_DST_LUMA_COEFFS, Y.at(0), Y.at(1), Y.at(2));
+    }
     shader->setUniformFloat(SHADER_SRC_REF_LUMINANCE, settings.srcRefLuminance);
     shader->setUniformFloat(SHADER_DST_REF_LUMINANCE, settings.dstRefLuminance);
     shader->setUniformFloat(SHADER_MAX_LUMINANCE, settings.maxLuminance);
