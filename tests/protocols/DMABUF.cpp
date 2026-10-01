@@ -1512,6 +1512,7 @@ TEST_F(CRenderLifecycleTest, ColorManagementMapsSDRBlackAndReferenceWhite) {
         EXPECT_NEAR(SETTINGS.srcTFRange.min + WHITE * (SETTINGS.srcTFRange.max - SETTINGS.srcTFRange.min), 250.0f, 0.0001f);
         EXPECT_FLOAT_EQ(SETTINGS.srcRefLuminance, 250.0f);
         EXPECT_FLOAT_EQ(SETTINGS.maxLuminance, SETTINGS.srcTFRange.max);
+        EXPECT_FLOAT_EQ(SETTINGS.capturePeak, SETTINGS.srcTFRange.max);
         EXPECT_TRUE(SETTINGS.needsTonemap);
 
         const auto UNMODIFIED = renderer().getCMSettings(ctx, SOURCE, TARGET, nullptr, false, 0.1f, 250);
@@ -1523,4 +1524,16 @@ TEST_F(CRenderLifecycleTest, ColorManagementMapsSDRBlackAndReferenceWhite) {
     EXPECT_FLOAT_EQ(DEFAULT.srcTFRange.min, 0.1f);
     EXPECT_FLOAT_EQ(DEFAULT.srcTFRange.max, 308.0f);
     EXPECT_FLOAT_EQ(DEFAULT.srcRefLuminance, 308.0f);
+}
+
+TEST_F(CRenderLifecycleTest, HDRCaptureIndependentOfSDRControls) {
+    using namespace NColorManagement;
+    m_monitor->m_imageDescription = DEFAULT_HDR_IMAGE_DESCRIPTION;
+    m_monitor->m_sdrMinLuminance = SDR_MIN_LUMINANCE;
+    m_monitor->m_sdrBrightness = 1.0f;
+    m_monitor->m_sdrSaturation = 1.0f;
+    m_monitor->m_sdrMaxLuminance = 81;
+    EXPECT_TRUE(m_monitor->needsUnmodifiedCopy());
+    m_monitor->m_sdrMaxLuminance = 80;
+    EXPECT_TRUE(m_monitor->needsUnmodifiedCopy());
 }

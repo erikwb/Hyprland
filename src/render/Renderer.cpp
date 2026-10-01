@@ -2154,6 +2154,7 @@ SCMSettings IHyprRenderer::getCMSettings(CRenderContext& ctx, const NColorManage
                             .max = targetImageDescription->value().getTFMaxLuminance(needsSDRmod ? sdrMaxLuminance : -1)},
         .srcRefLuminance = srcRefLuminance,
         .dstRefLuminance = targetImageDescription->value().luminances.reference,
+        .capturePeak     = maxLuminance,
         .convertMatrix   = matrix.mat(),
 
         .needsTonemap            = tonemapMode != 0 && needsTonemap,

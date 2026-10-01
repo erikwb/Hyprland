@@ -1293,6 +1293,15 @@ void CHyprOpenGLImpl::passCMUniforms(WP<CShader> shader, const NColorManagement:
         shader->setUniformFloat3(SHADER_DST_LUMA_COEFFS, Y.at(0), Y.at(1), Y.at(2));
     }
     shader->setUniformFloat(SHADER_SRC_REF_LUMINANCE, settings.srcRefLuminance);
+    shader->setUniformFloat(SHADER_CAPTURE_PEAK, settings.capturePeak);
+    if (shader->getUniformLocation(SHADER_CAPTURE_MATRIX) >= 0) {
+        auto                         matrix         = targetImageDescription->getPrimaries()->convertMatrix(DEFAULT_SRGB_IMAGE_DESCRIPTION->getPrimaries());
+        const auto                   MATRIX         = matrix.mat();
+        const std::array<GLfloat, 9> CAPTURE_MATRIX = {
+            MATRIX[0][0], MATRIX[1][0], MATRIX[2][0], MATRIX[0][1], MATRIX[1][1], MATRIX[2][1], MATRIX[0][2], MATRIX[1][2], MATRIX[2][2],
+        };
+        shader->setUniformMatrix3fv(SHADER_CAPTURE_MATRIX, 1, false, CAPTURE_MATRIX);
+    }
     shader->setUniformFloat(SHADER_DST_REF_LUMINANCE, settings.dstRefLuminance);
     shader->setUniformFloat(SHADER_MAX_LUMINANCE, settings.maxLuminance);
     shader->setUniformFloat(SHADER_DST_MAX_LUMINANCE, settings.dstMaxLuminance);
@@ -1499,10 +1508,9 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
     if (data.discardActive)
         shaderFeatures |= SH_FEAT_DISCARD;
 
-    const bool skipCM = !*PENABLECM || !m_cmSupported                   /* CM unsupported or disabled */
-        || ctx.m_data.pMonitor->doesNoShaderCM()                        /* no shader needed */
-        || !SOURCE_IMAGE_DESCRIPTION->needsCM(TARGET_IMAGE_DESCRIPTION) /* Source and target have matching image descriptions */
-        ;
+    const bool needsMonitorCM = SOURCE_IMAGE_DESCRIPTION->needsCM(TARGET_IMAGE_DESCRIPTION);
+    const bool needsCaptureCM = (globalFeatures(ctx) & SH_FEAT_MIRROR) && SOURCE_IMAGE_DESCRIPTION->needsCM(ctx.m_data.currentFB->getMirrorTexture()->m_imageDescription);
+    const bool skipCM         = !*PENABLECM || !m_cmSupported || ctx.m_data.pMonitor->doesNoShaderCM() || (!needsMonitorCM && !needsCaptureCM);
 
     if (ctx.m_data.pMonitor->needsACopyFB())
         LOG(Log::TRACE, "CM: render to FB skip={} {} -> {}", skipCM, SOURCE_IMAGE_DESCRIPTION->value(), TARGET_IMAGE_DESCRIPTION->value());
@@ -1536,6 +1544,7 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
         if (!shader)
             shader = getShaderVariant(SH_FRAG_SURFACE, shaderFeatures | globalFeatures(ctx), settings.sourceTF, settings.targetTF);
         shader = useShader(shader);
+        shader->setUniformInt(SHADER_CAPTURE_ONLY, !needsMonitorCM);
 
         passCMUniforms(shader, SOURCE_IMAGE_DESCRIPTION, TARGET_IMAGE_DESCRIPTION, true, ctx.m_data.pMonitor->m_sdrMinLuminance, ctx.m_data.pMonitor->m_sdrMaxLuminance, settings);
     } else {
