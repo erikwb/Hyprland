@@ -153,6 +153,7 @@ namespace Render::GL {
             bool                   blockBlurOptimization = false;
             SP<ITexture>           blurredBG;
             SP<ITexture>           blurAlphaMatte;
+            SP<ITexture>           mirrorTex;
             const CRegion*         damage        = nullptr;
             SP<CWLSurfaceResource> surface       = nullptr;
             float                  a             = 1.F;

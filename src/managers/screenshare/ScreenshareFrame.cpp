@@ -398,6 +398,8 @@ void CScreenshareFrame::renderWorkspace(Render::CRenderContext& ctx) {
 }
 
 void CScreenshareFrame::render(Render::CRenderContext& ctx) {
+    ctx.m_data.sdrCapture = m_session->m_type == SHARE_WINDOW;
+
     const auto PERM = g_pDynamicPermissionManager->clientPermissionMode(m_session->m_client, PERMISSION_TYPE_SCREENCOPY);
 
     // Removed sources keep their last export size even if the output changes size.

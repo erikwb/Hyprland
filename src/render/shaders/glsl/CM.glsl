@@ -8,7 +8,7 @@ uniform vec2  srcTFRange;
 uniform vec2  dstTFRange;
 
 uniform float srcRefLuminance;
-#if USE_MIRROR
+#if USE_MIRROR || USE_SDR_CAPTURE
 uniform float captureMaxLuminance;
 #endif
 uniform mat3  convertMatrix;
