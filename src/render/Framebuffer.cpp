@@ -41,10 +41,15 @@ SP<ITexture> IFramebuffer::getStencilTex() {
 }
 
 void IFramebuffer::enableMirror(SP<ITexture> tex) {
+    enableMirror(tex, true);
+}
+
+void IFramebuffer::enableMirror(SP<ITexture> tex, bool allocateStorage) {
     if (!tex || tex == m_mirrorTex)
         return;
-    m_mirrorTex   = tex;
-    m_fbAllocated = internalAlloc(m_size.x, m_size.y, m_drmFormat);
+    m_mirrorTex             = tex;
+    m_allocateMirrorStorage = allocateStorage;
+    m_fbAllocated           = internalAlloc(m_size.x, m_size.y, m_drmFormat);
 }
 
 void IFramebuffer::disableMirror() {

@@ -10,7 +10,7 @@
 #include "../helpers/cm/ColorManagement.hpp"
 
 namespace Render {
-    enum ePreparedFragmentShaderFeature : uint16_t {
+    enum ePreparedFragmentShaderFeature : uint32_t {
         SH_FEAT_UNKNOWN = 0, // all features just in case
 
         SH_FEAT_RGBA              = (1 << 0),  // RGBA/RGBX texture sampling
@@ -28,11 +28,13 @@ namespace Render {
         SH_FEAT_BLUR_MATTE        = (1 << 12), // condition: transformed-window blur matte
         SH_FEAT_ALT_TONEMAP       = (1 << 13), // condition: tonemapMode == 3
         SH_FEAT_BLUR_PROPORTIONAL = (1 << 14), // condition: decoration:blur:proportional
+        SH_FEAT_SDR_CAPTURE       = (1 << 15), // condition: window capture into sRGB
+        SH_FEAT_MIRROR_INPUT      = (1 << 16), // sample a previously converted capture texture
 
         // uniforms: targetPrimariesXYZ; condition: SH_FEAT_TONEMAP || SH_FEAT_SDR_MOD
     };
 
-    using ShaderFeatureFlags = uint16_t;
+    using ShaderFeatureFlags = uint32_t;
 
     constexpr NColorManagement::eTransferFunction SHADER_DEFAULT_TF = NColorManagement::CM_TRANSFER_FUNCTION_SRGB;
     struct SShaderVariant {

@@ -7,6 +7,9 @@
 precision         highp float;
 in vec2           v_texcoord;
 uniform sampler2D tex;
+#if USE_MIRROR_INPUT
+uniform sampler2D mirrorTex;
+#endif
 #if USE_BLUR
 uniform vec2      uvSize;
 uniform vec2      uvOffset;
@@ -61,6 +64,35 @@ const mat3 targetPrimariesXYZ = mat3(0.0);
 #endif
 
 #include "CM.glsl"
+#elif USE_BLUR && USE_MIRROR
+#include "cm_helpers.glsl"
+#endif
+
+#if USE_BLUR && (USE_MIRROR || USE_SDR_CAPTURE)
+uniform bool blurCaptureCM;
+uniform int blurTF;
+uniform vec2 blurTFRange;
+uniform float blurReferenceLuminance;
+uniform float blurMaxLuminance;
+uniform mat3 blurConvertMatrix;
+uniform vec3 blurLumaCoeffs;
+
+vec3 captureBlur(vec3 color) {
+    if (!blurCaptureCM)
+        return color;
+    color = blurTF == CM_TRANSFER_FUNCTION_HLG ? tfInvHLG(color, blurLumaCoeffs) : toLinearRGB(color, blurTF);
+    vec4 nits = vec4(blurConvertMatrix * color, 1.0);
+    if (blurTF != CM_TRANSFER_FUNCTION_LINEAR)
+        nits = toNit(nits, blurTFRange);
+    return captureToSRGB(nits, blurTF, blurTFRange, blurReferenceLuminance, blurMaxLuminance).rgb;
+}
+
+// The blurred backdrop is premultiplied and may be translucent; tone map its straight color.
+vec4 captureBlurPremultiplied(vec4 color) {
+    if (color.a <= 0.0)
+        return vec4(0.0);
+    return vec4(captureBlur(color.rgb / color.a) * color.a, color.a);
+}
 #endif
 
 layout(location = 0) out vec4 fragColor;
@@ -103,11 +135,11 @@ void main() {
     pixColor =
 #endif
         doColorManagement(pixColor, alpha, sourceTF, targetTF, convertMatrix, srcTFRange, dstTFRange, 0.0
-#if USE_TONEMAP || USE_MIRROR
+#if USE_TONEMAP || USE_MIRROR || USE_SDR_CAPTURE
                           ,
                           srcRefLuminance
 #endif
-#if USE_MIRROR
+#if USE_MIRROR || USE_SDR_CAPTURE
                        ,
                        captureMaxLuminance
 #endif
@@ -136,6 +168,18 @@ void main() {
     mirrorColor = pixColors[1];
 #else
     mirrorColor = pixColor;
+#endif
+#if USE_MIRROR_INPUT
+#if USE_MOTION_BLUR
+    mirrorColor = motionBlurSample(mirrorTex, motionPrevBox, motionCurrBox, motionSourceBox, motionSourceTexOrigin, motionSourceTexSize, motionSamples, USE_RGBA == 1);
+#elif USE_RGBA
+    mirrorColor = texture(mirrorTex, v_texcoord);
+#else
+    mirrorColor = vec4(texture(mirrorTex, v_texcoord).rgb, 1.0);
+#endif
+#if USE_CM
+    mirrorColor *= alpha;
+#endif
 #endif
 #endif
 
@@ -168,6 +212,9 @@ void main() {
 #else
     float blurredPixAlpha = 1.0;
 #endif
+#if USE_SDR_CAPTURE
+    blurredPixColor = captureBlurPremultiplied(blurredPixColor);
+#endif
     float pixBlurBgAlpha  = (1.0 - pixColor.a) * pixBlurAlphaMask * blurredPixAlpha;
     pixColor += blurredPixColor * pixBlurBgAlpha;
 #else
@@ -186,6 +233,9 @@ void main() {
     float blurredPixAlpha = 1.0 - t * t * t;
 #else
     float blurredPixAlpha = 1.0;
+#endif
+#if USE_SDR_CAPTURE
+    blurredPixColor = captureBlurPremultiplied(blurredPixColor);
 #endif
     float pixBlurBgAlpha  = (1.0 - pixColor.a) * pixBlurAlphaMask * blurredPixAlpha;
     pixColor += blurredPixColor * pixBlurBgAlpha;
@@ -211,7 +261,7 @@ void main() {
     if (discardAlpha && mirrorColor.a <= discardAlphaValue)
         mirrorBlurAlphaMask = 0.0;
 #endif
-    vec4  blurredMirrorColor = texture(blurredBG, blurUV);
+    vec4  blurredMirrorColor = captureBlurPremultiplied(texture(blurredBG, blurUV));
 #if USE_BLUR_PROPORTIONAL
     float t                  = 1.0 - pixColor.a;
     float blurredMirrorAlpha = 1.0 - t * t * t;
@@ -229,7 +279,7 @@ void main() {
 #else
         float mirrorBlurAlphaMask = 1.0;
 #endif
-        vec4  blurredMirrorColor = texture(blurredBG, blurUV);
+        vec4  blurredMirrorColor = captureBlurPremultiplied(texture(blurredBG, blurUV));
 #if USE_BLUR_PROPORTIONAL
         float t                  = 1.0 - pixColor.a;
         float blurredMirrorAlpha = 1.0 - t * t * t;

@@ -27,6 +27,7 @@ namespace Render {
         SP<ITexture>                        getMirrorTexture();
         SP<ITexture>                        getStencilTex();
         void                                enableMirror(SP<ITexture> tex);
+        void                                enableMirror(SP<ITexture> tex, bool allocateStorage);
         void                                disableMirror();
         NColorManagement::PImageDescription imageDescription();
         void                                setImageDescription(NColorManagement::PImageDescription desc);
@@ -41,7 +42,8 @@ namespace Render {
 
         SP<ITexture>                        m_tex;
         SP<ITexture>                        m_mirrorTex;
-        bool                                m_fbAllocated = false;
+        bool                                m_allocateMirrorStorage = true;
+        bool                                m_fbAllocated           = false;
 
         SP<ITexture>                        m_stencilTex;
         std::string                         m_name; // name for logging
