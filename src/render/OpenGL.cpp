@@ -1505,11 +1505,15 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
     if (data.motionBlur.enabled)
         shaderFeatures |= SH_FEAT_MOTION_BLUR;
 
+    if (data.mirrorTex && (globalFeatures(ctx) & SH_FEAT_MIRROR))
+        shaderFeatures |= SH_FEAT_MIRROR_INPUT;
+
     if (data.discardActive)
         shaderFeatures |= SH_FEAT_DISCARD;
 
     const bool needsMonitorCM = SOURCE_IMAGE_DESCRIPTION->needsCM(TARGET_IMAGE_DESCRIPTION);
-    const bool needsCaptureCM = (globalFeatures(ctx) & SH_FEAT_MIRROR) && SOURCE_IMAGE_DESCRIPTION->needsCM(ctx.m_data.currentFB->getMirrorTexture()->m_imageDescription);
+    const bool needsCaptureCM = !(shaderFeatures & SH_FEAT_MIRROR_INPUT) && (globalFeatures(ctx) & SH_FEAT_MIRROR) &&
+        SOURCE_IMAGE_DESCRIPTION->needsCM(ctx.m_data.currentFB->getMirrorTexture()->m_imageDescription);
     const bool skipCM         = !*PENABLECM || !m_cmSupported || ctx.m_data.pMonitor->doesNoShaderCM() || (!needsMonitorCM && !needsCaptureCM);
 
     if (ctx.m_data.pMonitor->needsACopyFB())
@@ -1528,7 +1532,9 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
 
         shaderFeatures |= SH_FEAT_CM;
 
-        if (TARGET_IMAGE_DESCRIPTION->value().icc.present)
+        if (ctx.m_data.sdrCapture && TARGET_IMAGE_DESCRIPTION == DEFAULT_SRGB_IMAGE_DESCRIPTION)
+            shaderFeatures |= SH_FEAT_SDR_CAPTURE;
+        else if (TARGET_IMAGE_DESCRIPTION->value().icc.present)
             shaderFeatures |= SH_FEAT_ICC;
         else {
             if (settings.needsTonemap) {
@@ -1563,6 +1569,31 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
         shader->setUniformFloat2(SHADER_UV_OFFSET, BLURUV.x, BLURUV.y);
         shader->setUniformFloat2(SHADER_UV_SIZE, BLURUV.w, BLURUV.h);
 
+        if (shader->getUniformLocation(SHADER_BLUR_CAPTURE_CM) >= 0) {
+            const auto  DESCRIPTION = data.blurredBG->m_imageDescription ? data.blurredBG->m_imageDescription : WORK_BUFFER_IMAGE_DESCRIPTION;
+            const auto& DESC        = DESCRIPTION->value();
+            const bool  HDR         = DESC.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || DESC.transferFunction == CM_TRANSFER_FUNCTION_HLG ||
+                DESC.transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR || DESC.transferFunction == CM_TRANSFER_FUNCTION_EXT_SRGB;
+            // The background is already composited using the monitor's SDR white.
+            const float REFERENCE = HDR && ctx.m_data.pMonitor->m_sdrMaxLuminance > 0 ? ctx.m_data.pMonitor->m_sdrMaxLuminance : DESC.luminances.reference;
+            shader->setUniformInt(SHADER_BLUR_CAPTURE_CM, *PENABLECM && m_cmSupported);
+            shader->setUniformInt(SHADER_BLUR_TF, DESC.transferFunction);
+            shader->setUniformFloat2(SHADER_BLUR_TF_RANGE, DESC.getTFMinLuminance(), DESC.getTFMaxLuminance());
+            shader->setUniformFloat(SHADER_BLUR_REF_LUMINANCE, REFERENCE);
+            shader->setUniformFloat(SHADER_BLUR_MAX_LUMINANCE, DESC.getContentMaxLuminance());
+            auto                         matrix  = DESCRIPTION->getPrimaries()->convertMatrix(DEFAULT_SRGB_IMAGE_DESCRIPTION->getPrimaries());
+            const auto                   MATRIX  = matrix.mat();
+            const std::array<GLfloat, 9> CONVERT = {
+                MATRIX[0][0], MATRIX[1][0], MATRIX[2][0], MATRIX[0][1], MATRIX[1][1], MATRIX[2][1], MATRIX[0][2], MATRIX[1][2], MATRIX[2][2],
+            };
+            shader->setUniformMatrix3fv(SHADER_BLUR_CONVERT_MATRIX, 1, false, CONVERT);
+            if (DESC.transferFunction == CM_TRANSFER_FUNCTION_HLG) {
+                auto        xyz = DESCRIPTION->getPrimaries()->toXYZ();
+                const auto& Y   = xyz.mat().at(1);
+                shader->setUniformFloat3(SHADER_BLUR_LUMA_COEFFS, Y.at(0), Y.at(1), Y.at(2));
+            }
+        }
+
         setActiveTexture(GL_TEXTURE0 + 1);
         data.blurredBG->bind();
     }
@@ -1572,6 +1603,17 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
 
         setActiveTexture(GL_TEXTURE0 + 2);
         data.blurAlphaMatte->bind();
+    }
+
+    if (shaderFeatures & SH_FEAT_MIRROR_INPUT) {
+        shader->setUniformInt(SHADER_MIRROR_TEX, 3);
+        setActiveTexture(GL_TEXTURE3);
+        data.mirrorTex->bind();
+        data.mirrorTex->setTexParameter(GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        data.mirrorTex->setTexParameter(GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        data.mirrorTex->setTexParameter(GL_TEXTURE_MAG_FILTER, ctx.m_data.useNearestNeighbor ? GL_NEAREST : data.mirrorTex->magFilter);
+        data.mirrorTex->setTexParameter(GL_TEXTURE_MIN_FILTER, ctx.m_data.useNearestNeighbor ? GL_NEAREST : data.mirrorTex->minFilter);
+        setActiveTexture(GL_TEXTURE0);
     }
 
     if (data.discardActive) {
@@ -1984,6 +2026,7 @@ void CHyprOpenGLImpl::renderTextureWithBlurInternal(CRenderContext& ctx, SP<ITex
                               .blur           = SHADERBLEND,
                               .blurredBG      = data.blurredBG,
                               .blurAlphaMatte = data.blurAlphaMatte,
+                              .mirrorTex      = data.mirrorTex,
                               .damage         = data.damage,
                               .a              = data.a * data.overallA,
                               .round          = data.round,
