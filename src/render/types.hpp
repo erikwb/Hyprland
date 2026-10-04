@@ -106,6 +106,7 @@ namespace Render {
         bool                      mouseZoomUseMouse  = true; // true by default
         bool                      useNearestNeighbor = false;
         bool                      blockScreenShader  = false;
+        bool                      sdrCapture         = false;
 
         Vector2D                  primarySurfaceUVTopLeft     = Vector2D(-1, -1);
         Vector2D                  primarySurfaceUVBottomRight = Vector2D(-1, -1);

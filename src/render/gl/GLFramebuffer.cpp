@@ -18,6 +18,8 @@ bool CGLFramebuffer::internalAlloc(int w, int h, uint32_t drmFormat) {
     CFramebufferBindingGuard bindings{g_pHyprOpenGL};
     m_tempBuf = false;
 
+    // Changing mirror attachments must preserve the rendered main texture.
+    const bool ALLOCATE_TEXTURE = !m_tex;
     if (!m_tex) {
         m_tex = g_pHyprRenderer->createTexture();
         m_tex->allocate({w, h}, drmFormat);
@@ -35,14 +37,16 @@ bool CGLFramebuffer::internalAlloc(int w, int h, uint32_t drmFormat) {
 
     const auto format = getPixelFormatFromDRM(drmFormat);
     m_tex->bind();
-    glTexImage2D(GL_TEXTURE_2D, 0, format->glInternalFormat ? format->glInternalFormat : format->glFormat, w, h, 0, format->glFormat, format->glType, nullptr);
+    if (ALLOCATE_TEXTURE)
+        glTexImage2D(GL_TEXTURE_2D, 0, format->glInternalFormat ? format->glInternalFormat : format->glFormat, w, h, 0, format->glFormat, format->glType, nullptr);
     g_pHyprOpenGL->bindFramebuffer(GL_FRAMEBUFFER, m_fb);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_tex->m_texID, 0);
 
     if (m_mirrorTex) {
         const auto format = getPixelFormatFromDRM(m_mirrorTex->m_drmFormat);
         m_mirrorTex->bind();
-        glTexImage2D(GL_TEXTURE_2D, 0, format->glInternalFormat ? format->glInternalFormat : format->glFormat, w, h, 0, format->glFormat, format->glType, nullptr);
+        if (m_allocateMirrorStorage)
+            glTexImage2D(GL_TEXTURE_2D, 0, format->glInternalFormat ? format->glInternalFormat : format->glFormat, w, h, 0, format->glFormat, format->glType, nullptr);
         g_pHyprOpenGL->bindFramebuffer(GL_FRAMEBUFFER, m_fb);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_mirrorTex->m_texID, 0);
         GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};

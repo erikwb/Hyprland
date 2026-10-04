@@ -94,6 +94,7 @@ void CGLElementRenderer::draw(CRenderContext& ctx, WP<CTexPassElement> element, 
                                      .blockBlurOptimization = m_data.blockBlurOptimization.value_or(false),
                                      .blurredBG             = m_data.blurredBG,
                                      .blurAlphaMatte        = m_data.blurAlphaMatte,
+                                     .mirrorTex             = m_data.mirrorTex,
 
                                      // common settings
                                      .damage         = m_data.damage.empty() ? &damage : &m_data.damage,

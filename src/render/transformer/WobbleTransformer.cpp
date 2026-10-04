@@ -73,29 +73,37 @@ SWindowTransformBuffer CWobbleTransformer::transform(CRenderContext& ctx, const 
     if (OUTPUTCANVAS.empty())
         return in;
 
+    const auto failed = [&] {
+        auto result    = in;
+        result.success = false;
+        return result;
+    };
     const auto OUT = g_pHyprRenderer->getWorkBuffer(ctx, OUTPUTCANVAS.size());
     if (!OUT)
-        return {
-            .framebuffer = in.framebuffer,
-            .box         = in.box,
-            .success     = false,
-        };
+        return failed();
+    OUT->setImageDescription(in.framebuffer->imageDescription());
 
-    const double SCALE          = context.monitor->m_scale;
-    const CBox   SOURCEBOX      = context.currentBox.copy().scale(SCALE);
-    const CBox   OUTPUTBOX      = transformedExtents(context.currentBox).scale(SCALE);
-    const CBox   LOCALOUTPUTBOX = OUTPUTBOX.copy().translate(-OUTPUTCANVAS.pos());
+    SP<IFramebuffer> captureFB;
+    if (in.captureFramebuffer) {
+        captureFB = g_pHyprRenderer->getWorkBuffer(ctx, OUTPUTCANVAS.size());
+        if (!captureFB)
+            return failed();
+        captureFB->setImageDescription(in.captureFramebuffer->imageDescription());
+        OUT->enableMirror(captureFB->getTexture(), false);
+    }
+    const CScopeGuard detachMirror([&] { OUT->disableMirror(); });
+
+    const double      SCALE          = context.monitor->m_scale;
+    const CBox        SOURCEBOX      = context.currentBox.copy().scale(SCALE);
+    const CBox        OUTPUTBOX      = transformedExtents(context.currentBox).scale(SCALE);
+    const CBox        LOCALOUTPUTBOX = OUTPUTBOX.copy().translate(-OUTPUTCANVAS.pos());
 
     if (SOURCEBOX.empty() || OUTPUTBOX.empty() || OUTPUTCANVAS.empty())
         return in;
 
     const auto VERTICES = m_mesh.verticesForBox(SOURCEBOX, OUTPUTBOX, in.framebuffer->getTexture()->m_size, SCALE, HYPRUTILS_TRANSFORM_NORMAL, in.box.pos());
     if (VERTICES.empty())
-        return {
-            .framebuffer = in.framebuffer,
-            .box         = in.box,
-            .success     = false,
-        };
+        return failed();
 
     GL::CFramebufferBindingGuard bindings{g_pHyprRenderer->glBackend()};
     auto                         state      = ctx.saveDrawState();
@@ -108,13 +116,15 @@ SWindowTransformBuffer CWobbleTransformer::transform(CRenderContext& ctx, const 
     g_pHyprRenderer->draw(ctx, CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
     GL::g_pHyprOpenGL->renderTextureMesh(ctx, in.framebuffer->getTexture(), LOCALOUTPUTBOX, VERTICES,
                                          GL::CHyprOpenGLImpl::STextureRenderData{
+                                             .mirrorTex     = in.captureFramebuffer ? in.captureFramebuffer->getTexture() : nullptr,
                                              .damage        = &renderData.damage,
                                              .a             = 1.F,
                                              .allowCustomUV = true,
                                          });
     return {
-        .framebuffer = OUT,
-        .box         = OUTPUTCANVAS,
+        .framebuffer        = OUT,
+        .box                = OUTPUTCANVAS,
+        .captureFramebuffer = captureFB,
     };
 }
 

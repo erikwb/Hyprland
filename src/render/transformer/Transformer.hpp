@@ -18,6 +18,7 @@ namespace Render {
         SP<Render::IFramebuffer> framebuffer;
         CBox                     box;
         bool                     success = true;
+        SP<Render::IFramebuffer> captureFramebuffer;
     };
 
     struct SWindowTransformStage {
