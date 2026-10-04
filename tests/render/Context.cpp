@@ -443,6 +443,7 @@ namespace Render {
             context.m_data.mouseZoomUseMouse           = false;
             context.m_data.useNearestNeighbor          = true;
             context.m_data.blockScreenShader           = true;
+            context.m_data.sdrCapture                  = true;
             context.m_data.transformDamage             = false;
             context.m_data.noSimplify                  = true;
             context.m_data.renderingTransformedSource  = true;
@@ -468,6 +469,7 @@ namespace Render {
             EXPECT_FLOAT_EQ(context.m_data.mouseZoomFactor, 1.F);
             EXPECT_TRUE(context.m_data.mouseZoomUseMouse);
             EXPECT_FALSE(context.m_data.useNearestNeighbor);
+            EXPECT_FALSE(context.m_data.sdrCapture);
             EXPECT_FALSE(context.m_data.blockScreenShader);
             EXPECT_TRUE(context.m_data.transformDamage);
             EXPECT_FALSE(context.m_data.noSimplify);

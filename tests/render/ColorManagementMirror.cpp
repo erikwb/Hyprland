@@ -15,15 +15,24 @@
 using namespace NColorManagement;
 using namespace Hyprutils::Memory;
 
+struct SShaderOptions {
+    bool mirrorInput = false;
+    bool motionBlur = false;
+    bool colorManagement = true;
+    bool blur            = false;
+    bool blurMatte       = false;
+};
+
 static std::string shaderSource(std::string_view name, bool mirror, bool tonemap = false, eTransferFunction sourceTF = CM_TRANSFER_FUNCTION_SRGB,
-                                eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR, bool altTonemap = false) {
+                                eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR, bool altTonemap = false, bool sdrCapture = false, SShaderOptions options = {}) {
     if (name == "defines.h")
-        return std::format("#define USE_CM 1\n#define USE_RGBA 1\n#define USE_MIRROR {}\n#define USE_TONEMAP {}\n"
-                           "#define USE_BLUR 0\n#define USE_BLUR_MATTE 0\n#define USE_BLUR_ALPHA_MASK 0\n"
+        return std::format("#define USE_CM {}\n#define USE_RGBA 1\n#define USE_MIRROR {}\n#define USE_TONEMAP {}\n"
+                           "#define USE_BLUR {}\n#define USE_BLUR_MATTE {}\n#define USE_BLUR_ALPHA_MASK 0\n"
                            "#define USE_DISCARD 0\n#define USE_TINT 0\n#define USE_ROUNDING 0\n"
-                           "#define USE_MOTION_BLUR 0\n#define USE_SDR_MOD 0\n#define USE_ICC 0\n#define USE_ALT_TONEMAP {}\n"
-                           "#define SOURCE_TF {}\n#define TARGET_TF {}\n",
-                           mirror ? 1 : 0, tonemap ? 1 : 0, altTonemap ? 1 : 0, sc<int>(sourceTF), sc<int>(targetTF));
+                           "#define USE_MOTION_BLUR {}\n#define USE_SDR_MOD 0\n#define USE_ICC 0\n#define USE_ALT_TONEMAP {}\n"
+                           "#define SOURCE_TF {}\n#define TARGET_TF {}\n#define USE_SDR_CAPTURE {}\n#define USE_MIRROR_INPUT {}\n",
+                           options.colorManagement ? 1 : 0, mirror ? 1 : 0, tonemap ? 1 : 0, options.blur ? 1 : 0, options.blurMatte ? 1 : 0, options.motionBlur ? 1 : 0,
+                           altTonemap ? 1 : 0, sc<int>(sourceTF), sc<int>(targetTF), sdrCapture ? 1 : 0, options.mirrorInput ? 1 : 0);
 
     const auto IT = std::ranges::find(SHADERS, name, &std::pair<std::string_view, std::string_view>::first);
     if (IT == SHADERS.end())
@@ -33,7 +42,7 @@ static std::string shaderSource(std::string_view name, bool mirror, bool tonemap
     std::string        source, line;
     while (std::getline(input, line)) {
         if (line.starts_with("#include \""))
-            source += shaderSource(std::string_view{line}.substr(10, line.size() - 11), mirror, tonemap, sourceTF, targetTF, altTonemap);
+            source += shaderSource(std::string_view{line}.substr(10, line.size() - 11), mirror, tonemap, sourceTF, targetTF, altTonemap, sdrCapture, options);
         else if (!line.starts_with("#extension GL_ARB_shading_language_include"))
             source += line + '\n';
     }
@@ -45,7 +54,7 @@ class CColorManagementMirrorTest : public testing::Test {
     void SetUp() override;
     void TearDown() override;
     void createProgram(bool mirror, bool tonemap = false, std::string_view fragment = "surface.frag", eTransferFunction sourceTF = CM_TRANSFER_FUNCTION_SRGB,
-                       eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR, bool altTonemap = false);
+                       eTransferFunction targetTF = CM_TRANSFER_FUNCTION_LINEAR, bool altTonemap = false, bool sdrCapture = false, SShaderOptions options = {});
     void checkPixel(eTransferFunction tf, float reference, float sourceMax, float encoded, float expected, float alpha = 1.0f, bool tonemap = false, float capturePeak = 0.0f,
                     float redRatio = 1.0f, float sourceMin = 0.0f);
 
@@ -124,14 +133,15 @@ void CColorManagementMirrorTest::TearDown() {
     eglTerminate(m_display);
 }
 
-void CColorManagementMirrorTest::createProgram(bool mirror, bool tonemap, std::string_view fragment, eTransferFunction sourceTF, eTransferFunction targetTF, bool altTonemap) {
+void CColorManagementMirrorTest::createProgram(bool mirror, bool tonemap, std::string_view fragment, eTransferFunction sourceTF, eTransferFunction targetTF, bool altTonemap,
+                                               bool sdrCapture, SShaderOptions options) {
     glDeleteProgram(m_program);
     m_program                                                   = glCreateProgram();
     const std::array<std::pair<GLenum, std::string>, 2> SOURCES = {{
         {GL_VERTEX_SHADER,
          "#version 300 es\nout vec2 v_texcoord;\nvoid main() { v_texcoord = vec2(0.5); "
          "vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }\n"},
-        {GL_FRAGMENT_SHADER, shaderSource(fragment, mirror, tonemap, sourceTF, targetTF, altTonemap)},
+        {GL_FRAGMENT_SHADER, shaderSource(fragment, mirror, tonemap, sourceTF, targetTF, altTonemap, sdrCapture, options)},
     }};
     for (const auto& [TYPE, SOURCE] : SOURCES) {
         const auto  SHADER = glCreateShader(TYPE);
@@ -325,6 +335,8 @@ void CColorManagementMirrorTest::setPrimaries(ePrimaries source, ePrimaries targ
         }
     }
     glUniformMatrix3fv(glGetUniformLocation(m_program, "convertMatrix"), 1, GL_FALSE, convert.data());
+    glUniformMatrix3fv(glGetUniformLocation(m_program, "blurConvertMatrix"), 1, GL_FALSE, convert.data());
+    glUniform3f(glGetUniformLocation(m_program, "blurLumaCoeffs"), SRC_Y.at(0), SRC_Y.at(1), SRC_Y.at(2));
     glUniformMatrix3fv(glGetUniformLocation(m_program, "captureMatrix"), 1, GL_FALSE, capture.data());
     glUniformMatrix3fv(glGetUniformLocation(m_program, "targetPrimariesXYZ"), 1, GL_FALSE, xyz.data());
     EXPECT_EQ(glGetError(), GL_NO_ERROR);
@@ -600,4 +612,257 @@ TEST_F(CColorManagementMirrorTest, GammaCaptureUsesReferenceWhiteWithEncodingHea
             }
         }
     }
+}
+
+TEST_F(CColorManagementMirrorTest, WindowCaptureMatchesMonitorCapture) {
+    struct SSource {
+        eTransferFunction tf        = CM_TRANSFER_FUNCTION_SRGB;
+        float             min       = 0.0f;
+        float             max       = 80.0f;
+        float             reference = 80.0f;
+        float             peak      = 80.0f;
+    };
+    const std::array<SSource, 7> SOURCES = {{
+        {CM_TRANSFER_FUNCTION_EXT_LINEAR, 0.0f, 80.0f, 308.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_EXT_SRGB, 0.2f, 80.0f, 308.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_ST2084_PQ, 0.0f, 10000.0f, 203.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_HLG, 0.0f, 1000.0f, 203.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_GAMMA22, 0.2f, 600.0f, 203.0f, 600.0f},
+        {CM_TRANSFER_FUNCTION_SRGB, 0.0f, 600.0f, 203.0f, 600.0f},
+        {CM_TRANSFER_FUNCTION_SRGB, 0.2f, 80.0f, 80.0f, 80.0f},
+    }};
+    for (const auto& SOURCE : SOURCES) {
+        SCOPED_TRACE(sc<int>(SOURCE.tf));
+        for (float encoded : {0.0f, 0.25f, 0.5f, 1.0f}) {
+            for (float alpha : {0.0f, 0.25f, 1.0f}) {
+                for (float opacity : {0.4f, 1.0f}) {
+                    std::array<std::array<float, 4>, 2> captures = {};
+                    for (size_t path = 0; path < captures.size(); ++path) {
+                        const bool WINDOW = path == 1;
+                        ASSERT_NO_FATAL_FAILURE(
+                            createProgram(!WINDOW, false, "surface.frag", SOURCE.tf, WINDOW ? CM_TRANSFER_FUNCTION_SRGB : CM_TRANSFER_FUNCTION_LINEAR, false, WINDOW));
+                        glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+                        glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), SOURCE.min, SOURCE.max);
+                        glUniform2f(glGetUniformLocation(m_program, "dstTFRange"), WINDOW ? 0.2f : 0.0f, WINDOW ? 80.0f : 10000.0f);
+                        glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), SOURCE.reference);
+                        glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), SOURCE.peak);
+                        setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+                        captures.at(path) = readMonitor({encoded * alpha, encoded * alpha * 0.75f, encoded * alpha * 0.5f, alpha}, opacity);
+                        if (!WINDOW) {
+                            glReadBuffer(GL_COLOR_ATTACHMENT1);
+                            glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, captures.at(path).data());
+                        }
+                    }
+                    for (size_t channel = 0; channel < 4; ++channel)
+                        EXPECT_NEAR(captures.at(0).at(channel), captures.at(1).at(channel), 0.002f);
+                    EXPECT_NEAR(captures.at(1).at(3), alpha * opacity, 0.0001f);
+                    EXPECT_EQ(glGetError(), GL_NO_ERROR);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, IntermediateBuffersPreserveCaptureWhiteAndOpacity) {
+    GLuint captureTexture = 0;
+    glGenTextures(1, &captureTexture);
+    for (float sourceAlpha : {0.0f, 0.25f, 1.0f}) {
+        ASSERT_NO_FATAL_FAILURE(createProgram(true, false, "surface.frag", CM_TRANSFER_FUNCTION_GAMMA22, CM_TRANSFER_FUNCTION_EXT_LINEAR));
+        glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+        glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, 308.0f);
+        glUniform2f(glGetUniformLocation(m_program, "dstTFRange"), 0.0f, 80.0f);
+        glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), 308.0f);
+        glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), 308.0f);
+        setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+        const float ENCODED = std::pow(0.25f, 1.0f / 2.2f) * sourceAlpha;
+        const auto MONITOR = readMonitor({ENCODED, ENCODED, ENCODED, sourceAlpha});
+        std::array<float, 4> capture = {};
+        glReadBuffer(GL_COLOR_ATTACHMENT1);
+        glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, capture.data());
+        EXPECT_NEAR(capture.at(0), 0.5370987f * sourceAlpha, 0.002f);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, captureTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, capture.data());
+        glActiveTexture(GL_TEXTURE0);
+
+        // Intermediate buffers carry the monitor's reference (203), not the
+        // client's (308). Their already-converted capture must pass through.
+        for (bool cm : {false, true}) {
+            for (bool motionBlur : {false, true}) {
+                ASSERT_NO_FATAL_FAILURE(createProgram(true, false, "surface.frag", CM_TRANSFER_FUNCTION_EXT_LINEAR, CM_TRANSFER_FUNCTION_EXT_LINEAR, false, false,
+                                                      {.mirrorInput = true, .motionBlur = motionBlur, .colorManagement = cm}));
+                glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+                glUniform1i(glGetUniformLocation(m_program, "mirrorTex"), 1);
+                glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, 80.0f);
+                glUniform2f(glGetUniformLocation(m_program, "dstTFRange"), 0.0f, 80.0f);
+                glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), 203.0f);
+                glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), 1000.0f);
+                setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+                for (auto name : {"motionPrevBox", "motionCurrBox", "motionSourceBox"})
+                    glUniform4f(glGetUniformLocation(m_program, name), 0.0f, 0.0f, 1.0f, 1.0f);
+                glUniform2f(glGetUniformLocation(m_program, "motionSourceTexOrigin"), 0.0f, 0.0f);
+                glUniform2f(glGetUniformLocation(m_program, "motionSourceTexSize"), 1.0f, 1.0f);
+                glUniform1i(glGetUniformLocation(m_program, "motionSamples"), 2);
+                for (float opacity : {0.25f, 1.0f}) {
+                    const auto RESULT = readMonitor(MONITOR, opacity);
+                    std::array<float, 4> captured = {};
+                    glReadBuffer(GL_COLOR_ATTACHMENT1);
+                    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, captured.data());
+                    for (size_t channel = 0; channel < 4; ++channel) {
+                        EXPECT_NEAR(RESULT.at(channel), MONITOR.at(channel) * opacity, 0.002f);
+                        EXPECT_NEAR(captured.at(channel), capture.at(channel) * opacity, 0.002f);
+                    }
+                }
+            }
+        }
+    }
+    glDeleteTextures(1, &captureTexture);
+    EXPECT_EQ(glGetError(), GL_NO_ERROR);
+}
+
+TEST_F(CColorManagementMirrorTest, WindowCaptureSurvivesSDRIntermediateBuffer) {
+    for (float sourceAlpha : {0.0f, 0.25f, 1.0f}) {
+        ASSERT_NO_FATAL_FAILURE(createProgram(false, false, "surface.frag", CM_TRANSFER_FUNCTION_GAMMA22, CM_TRANSFER_FUNCTION_SRGB, false, true));
+        glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+        glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, 308.0f);
+        glUniform2f(glGetUniformLocation(m_program, "dstTFRange"), 0.2f, 80.0f);
+        glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), 308.0f);
+        glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), 308.0f);
+        setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+        const float ENCODED = std::pow(0.25f, 1.0f / 2.2f) * sourceAlpha;
+        const auto  CAPTURE = readMonitor({ENCODED, ENCODED, ENCODED, sourceAlpha});
+        EXPECT_NEAR(CAPTURE.at(0), 0.5370987f * sourceAlpha, 0.002f);
+
+        // Matching SDR buffer descriptions skip CM on the final composite.
+        ASSERT_NO_FATAL_FAILURE(createProgram(false, false, "surface.frag", CM_TRANSFER_FUNCTION_SRGB, CM_TRANSFER_FUNCTION_SRGB, false, false, {.colorManagement = false}));
+        glUniform1i(glGetUniformLocation(m_program, "tex"), 0);
+        for (float opacity : {0.25f, 1.0f}) {
+            const auto RESULT = readMonitor(CAPTURE, opacity);
+            for (size_t channel = 0; channel < 4; ++channel)
+                EXPECT_NEAR(RESULT.at(channel), CAPTURE.at(channel) * opacity, 0.002f);
+        }
+    }
+}
+
+TEST_F(CColorManagementMirrorTest, BlurCaptureMatchesSourceConversionWithoutChangingMonitor) {
+    struct SSource {
+        eTransferFunction tf        = CM_TRANSFER_FUNCTION_EXT_LINEAR;
+        float             min       = 0.0f;
+        float             max       = 80.0f;
+        float             reference = 203.0f;
+        float             peak      = 1000.0f;
+    };
+    const std::array<SSource, 6> SOURCES    = {{
+        {CM_TRANSFER_FUNCTION_EXT_LINEAR, 0.0f, 80.0f, 80.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_EXT_LINEAR, 0.0f, 80.0f, 500.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_ST2084_PQ, 0.0f, 10000.0f, 203.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_HLG, 0.0f, 1000.0f, 203.0f, 1000.0f},
+        {CM_TRANSFER_FUNCTION_GAMMA22, 0.2f, 80.0f, 80.0f, 80.0f},
+        {CM_TRANSFER_FUNCTION_SRGB, 0.2f, 80.0f, 80.0f, 80.0f},
+    }};
+    GLuint                       background = 0;
+    glGenTextures(1, &background);
+    for (const auto& SOURCE : SOURCES) {
+        for (auto primaries : {CM_PRIMARIES_SRGB, CM_PRIMARIES_BT2020}) {
+            const float                ENCODED = SOURCE.tf == CM_TRANSFER_FUNCTION_EXT_LINEAR ? 0.21404114f * SOURCE.reference / 80.0f : 0.5f;
+            const std::array<float, 4> PIXEL   = {ENCODED, ENCODED * 0.75f, ENCODED * 0.5f, 1.0f};
+            ASSERT_NO_FATAL_FAILURE(createProgram(true, false, "surface.frag", SOURCE.tf));
+            setPrimaries(primaries, CM_PRIMARIES_SRGB);
+            glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), SOURCE.min, SOURCE.max);
+            glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), SOURCE.reference);
+            glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), SOURCE.peak);
+            readMonitor(PIXEL);
+            std::array<float, 4> reference = {};
+            glReadBuffer(GL_COLOR_ATTACHMENT1);
+            glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, reference.data());
+            if (primaries == CM_PRIMARIES_SRGB && SOURCE.tf == CM_TRANSFER_FUNCTION_EXT_LINEAR) {
+                EXPECT_NEAR(reference.at(0), 0.5f, 0.002f);
+            }
+
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, background);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, PIXEL.data());
+            glActiveTexture(GL_TEXTURE0);
+
+            for (bool cm : {false, true}) {
+                for (bool matte : {false, true}) {
+                    SCOPED_TRACE(std::format("tf={}, primaries={}, cm={}, matte={}", sc<int>(SOURCE.tf), sc<int>(primaries), cm, matte));
+                    ASSERT_NO_FATAL_FAILURE(createProgram(true, false, "surface.frag", CM_TRANSFER_FUNCTION_SRGB, CM_TRANSFER_FUNCTION_LINEAR, false, false,
+                                                          {.mirrorInput = matte, .colorManagement = cm, .blur = true, .blurMatte = matte}));
+                    setPrimaries(primaries, CM_PRIMARIES_SRGB);
+                    glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, 80.0f);
+                    glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), 80.0f);
+                    glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), 80.0f);
+                    glUniform1i(glGetUniformLocation(m_program, "blurredBG"), 1);
+                    glUniform2f(glGetUniformLocation(m_program, "uvSize"), 1.0f, 1.0f);
+                    glUniform1i(glGetUniformLocation(m_program, "blurTF"), SOURCE.tf);
+                    glUniform2f(glGetUniformLocation(m_program, "blurTFRange"), SOURCE.min, SOURCE.max);
+                    glUniform1f(glGetUniformLocation(m_program, "blurReferenceLuminance"), SOURCE.reference);
+                    glUniform1f(glGetUniformLocation(m_program, "blurMaxLuminance"), SOURCE.peak);
+                    glUniform1i(glGetUniformLocation(m_program, "blurAlphaMatte"), 1);
+                    glUniform1f(glGetUniformLocation(m_program, "blurAlpha"), 0.5f);
+                    // Reuse the background's red channel as a fractional blur matte.
+                    const float MASK = matte ? std::min(ENCODED, 1.0f) * 0.5f : 1.0f;
+                    for (float alpha : {0.0f, 0.25f, 1.0f}) {
+                        for (float opacity : {0.4f, 1.0f}) {
+                            glUniform1i(glGetUniformLocation(m_program, "blurCaptureCM"), 0);
+                            const auto BEFORE = readMonitor({0.0f, 0.0f, 0.0f, alpha}, opacity);
+                            glUniform1i(glGetUniformLocation(m_program, "blurCaptureCM"), 1);
+                            const auto           AFTER   = readMonitor({0.0f, 0.0f, 0.0f, alpha}, opacity);
+                            std::array<float, 4> capture = {};
+                            glReadBuffer(GL_COLOR_ATTACHMENT1);
+                            glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, capture.data());
+                            for (size_t channel = 0; channel < 4; ++channel)
+                                EXPECT_FLOAT_EQ(BEFORE.at(channel), AFTER.at(channel));
+                            for (size_t channel = 0; channel < 3; ++channel)
+                                EXPECT_NEAR(capture.at(channel), reference.at(channel) * (1.0f - alpha * opacity) * MASK, 0.002f);
+                            EXPECT_NEAR(capture.at(3), alpha * opacity + (1.0f - alpha * opacity) * MASK, 0.001f);
+                            EXPECT_EQ(glGetError(), GL_NO_ERROR);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    glDeleteTextures(1, &background);
+}
+
+TEST_F(CColorManagementMirrorTest, WindowCaptureConvertsBlurBackground) {
+    ASSERT_NO_FATAL_FAILURE(createProgram(false, false, "surface.frag", CM_TRANSFER_FUNCTION_SRGB, CM_TRANSFER_FUNCTION_SRGB, false, true, {.blur = true}));
+    setPrimaries(CM_PRIMARIES_SRGB, CM_PRIMARIES_SRGB);
+    glUniform2f(glGetUniformLocation(m_program, "srcTFRange"), 0.0f, 80.0f);
+    glUniform1f(glGetUniformLocation(m_program, "srcRefLuminance"), 80.0f);
+    glUniform1f(glGetUniformLocation(m_program, "captureMaxLuminance"), 80.0f);
+    glUniform1i(glGetUniformLocation(m_program, "blurredBG"), 1);
+    glUniform2f(glGetUniformLocation(m_program, "uvSize"), 1.0f, 1.0f);
+    glUniform1i(glGetUniformLocation(m_program, "blurCaptureCM"), 1);
+    glUniform1i(glGetUniformLocation(m_program, "blurTF"), CM_TRANSFER_FUNCTION_EXT_LINEAR);
+    glUniform2f(glGetUniformLocation(m_program, "blurTFRange"), 0.0f, 80.0f);
+    glUniform1f(glGetUniformLocation(m_program, "blurReferenceLuminance"), 203.0f);
+    glUniform1f(glGetUniformLocation(m_program, "blurMaxLuminance"), 1000.0f);
+
+    GLuint background = 0;
+    glGenTextures(1, &background);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, background);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    const float                ENCODED = 0.21404114f * 203.0f / 80.0f;
+    const std::array<float, 4> PIXEL   = {ENCODED, ENCODED, ENCODED, 1.0f};
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, PIXEL.data());
+    glActiveTexture(GL_TEXTURE0);
+    for (float alpha : {0.0f, 0.25f, 1.0f}) {
+        for (float opacity : {0.4f, 1.0f}) {
+            const auto CAPTURE = readMonitor({0.0f, 0.0f, 0.0f, alpha}, opacity);
+            for (size_t channel = 0; channel < 3; ++channel)
+                EXPECT_NEAR(CAPTURE.at(channel), 0.5f * (1.0f - alpha * opacity), 0.002f);
+            EXPECT_NEAR(CAPTURE.at(3), 1.0f, 0.0001f);
+        }
+    }
+    glDeleteTextures(1, &background);
 }

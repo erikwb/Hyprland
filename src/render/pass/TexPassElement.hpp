@@ -35,6 +35,7 @@ class CTexPassElement : public IPassElement {
   public:
     struct SRenderData {
         SP<Render::ITexture>              tex;
+        SP<Render::ITexture>              mirrorTex;
         CBox                              box;
         float                             a        = 1.F;
         float                             blurA    = 1.F;

@@ -597,7 +597,7 @@ static CBox motionBlurSourceBox(const SMotionBlurData& motionBlur, const CBox& o
     return hasRequired ? required.intersection(motionBlur.current) : CBox{};
 }
 
-static bool transformPlanFits(const SWindowTransformPlan& plan, double scale, bool hasMatte) {
+static bool transformPlanFits(const SWindowTransformPlan& plan, double scale, bool hasMatte, bool hasCapture) {
     static const auto LIMITS = [] {
         GLint textureSize = 0;
         GLint viewport[2] = {0, 0};
@@ -631,7 +631,8 @@ static bool transformPlanFits(const SWindowTransformPlan& plan, double scale, bo
             return false;
     }
 
-    return !hasMatte || totalPixels <= MAX_TRANSFORMER_PIXELS / 2;
+    const uint64_t COPIES = 1 + (hasMatte ? 1 : 0) + (hasCapture ? 1 : 0);
+    return totalPixels <= MAX_TRANSFORMER_PIXELS / COPIES;
 }
 
 void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransformedWindowPassElement> element, const CRegion& damage) {
@@ -643,6 +644,7 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
     if (!pMonitor)
         return;
 
+    const bool      CAPTURE           = renderData.currentFB && renderData.currentFB->getMirrorTexture();
     const auto      PWINDOW           = element->m_data.window.lock();
     bool            applyTransformers = PWINDOW && !element->m_data.standalone && !element->m_data.renderingSnapshot;
     const CBox      MONITORBOX        = CBox{{}, pMonitor->m_size};
@@ -674,7 +676,7 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
         element->m_data.pass->render(ctx, damage);
     };
 
-    if (plan.sourceBox.empty() || !transformPlanFits(plan, pMonitor->m_scale, element->m_data.blur)) {
+    if (plan.sourceBox.empty() || !transformPlanFits(plan, pMonitor->m_scale, element->m_data.blur, CAPTURE)) {
         applyTransformers = false;
         motionBlur        = {};
         visibleOutput     = HASRENDERMODIFIERS ? element->m_data.currentBox : element->m_data.currentBox.intersection(MONITORBOX);
@@ -684,7 +686,7 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
         plan           = {};
         plan.sourceBox = visibleOutput;
         plan.outputBox = visibleOutput;
-        if (!transformPlanFits(plan, pMonitor->m_scale, element->m_data.blur)) {
+        if (!transformPlanFits(plan, pMonitor->m_scale, element->m_data.blur, CAPTURE)) {
             renderNestedDirect();
             return;
         }
@@ -711,6 +713,20 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
             return;
         }
     }
+
+    SP<IFramebuffer> captureFB;
+    if (CAPTURE) {
+        captureFB = g_pHyprRenderer->getWorkBuffer(ctx, SOURCECANVAS.size());
+        if (!captureFB) {
+            renderNestedDirect();
+            return;
+        }
+        captureFB->setImageDescription(NColorManagement::DEFAULT_SRGB_IMAGE_DESCRIPTION);
+        fb->enableMirror(captureFB->getTexture(), false);
+    } else if (renderData.sdrCapture)
+        fb->setImageDescription(NColorManagement::DEFAULT_SRGB_IMAGE_DESCRIPTION);
+
+    const CScopeGuard detachMirror([&] { fb->disableMirror(); });
 
     const CRegion  CANVASDAMAGE      = CRegion{0, 0, sc<int>(SOURCECANVAS.w), sc<int>(SOURCECANVAS.h)};
     const Vector2D CANVASTRANSLATION = -SOURCECANVAS.pos();
@@ -752,7 +768,7 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
         element->m_data.pass->render(ctx, CANVASDAMAGE);
 
         renderData.renderModif = {};
-        last                   = transformWindowFB({.framebuffer = fb, .box = SOURCECANVAS});
+        last                   = transformWindowFB({.framebuffer = fb, .box = SOURCECANVAS, .captureFramebuffer = captureFB});
     }
 
     SP<IFramebuffer>     blurAlphaMatteFB;
@@ -819,6 +835,7 @@ void IElementRenderer::drawTransformedWindow(CRenderContext& ctx, WP<CTransforme
 
     CTexPassElement::SRenderData data;
     data.tex                   = last.framebuffer->getTexture();
+    data.mirrorTex             = last.captureFramebuffer ? last.captureFramebuffer->getTexture() : nullptr;
     data.box                   = outputBox;
     data.a                     = 1.F;
     data.motionBlur            = motionBlur;

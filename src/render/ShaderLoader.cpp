@@ -80,6 +80,8 @@ std::string CShaderLoader::getDefines(const SShaderVariant& variant) {
         {"USE_BLUR_ALPHA_MASK", SH_FEAT_BLUR_ALPHA_MASK},
         {"USE_BLUR_MATTE", SH_FEAT_BLUR_MATTE},
         {"USE_ALT_TONEMAP", SH_FEAT_ALT_TONEMAP},
+        {"USE_SDR_CAPTURE", SH_FEAT_SDR_CAPTURE},
+        {"USE_MIRROR_INPUT", SH_FEAT_MIRROR_INPUT},
     });
 
     std::string           res;
@@ -153,7 +155,7 @@ std::string CShaderLoader::process(const std::string& filename, const std::map<s
 std::string CShaderLoader::getVariantSource(ePreparedFragmentShader frag, SShaderVariant variant) {
     static const auto PCM = CConfigValue<Config::INTEGER>("render:cm_enabled");
     if (!*PCM)
-        variant.features &= ~(SH_FEAT_CM | SH_FEAT_TONEMAP | SH_FEAT_ALT_TONEMAP | SH_FEAT_SDR_MOD);
+        variant.features &= ~(SH_FEAT_CM | SH_FEAT_TONEMAP | SH_FEAT_ALT_TONEMAP | SH_FEAT_SDR_MOD | SH_FEAT_SDR_CAPTURE);
 
     // without CM the transfer functions are unused, keep them at the default so we don't cache
     // several variants of identical source

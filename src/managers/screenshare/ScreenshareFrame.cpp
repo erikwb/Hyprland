@@ -364,6 +364,8 @@ void CScreenshareFrame::renderWindow(Render::CRenderContext& ctx) {
 }
 
 void CScreenshareFrame::render(Render::CRenderContext& ctx) {
+    ctx.m_data.sdrCapture = m_session->m_type == SHARE_WINDOW;
+
     const auto PERM = g_pDynamicPermissionManager->clientPermissionMode(m_session->m_client, PERMISSION_TYPE_SCREENCOPY);
 
     CRegion    frameRegion = {0, 0, m_bufferSize.x, m_bufferSize.y};

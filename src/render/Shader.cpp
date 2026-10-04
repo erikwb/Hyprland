@@ -140,6 +140,14 @@ void CShader::getUniformLocations() {
     m_uniformLocations.at(SHADER_CAPTURE_PEAK)      = getUniform("captureMaxLuminance");
     m_uniformLocations.at(SHADER_CAPTURE_MATRIX)    = getUniform("captureMatrix");
     m_uniformLocations.at(SHADER_CAPTURE_ONLY)      = getUniform("captureOnly");
+    m_uniformLocations.at(SHADER_MIRROR_TEX)        = getUniform("mirrorTex");
+    m_uniformLocations.at(SHADER_BLUR_CAPTURE_CM)     = getUniform("blurCaptureCM");
+    m_uniformLocations.at(SHADER_BLUR_TF)             = getUniform("blurTF");
+    m_uniformLocations.at(SHADER_BLUR_TF_RANGE)       = getUniform("blurTFRange");
+    m_uniformLocations.at(SHADER_BLUR_REF_LUMINANCE)  = getUniform("blurReferenceLuminance");
+    m_uniformLocations.at(SHADER_BLUR_MAX_LUMINANCE)  = getUniform("blurMaxLuminance");
+    m_uniformLocations.at(SHADER_BLUR_CONVERT_MATRIX) = getUniform("blurConvertMatrix");
+    m_uniformLocations.at(SHADER_BLUR_LUMA_COEFFS)    = getUniform("blurLumaCoeffs");
     m_uniformLocations[SHADER_SRC_REF_LUMINANCE]    = getUniform("srcRefLuminance");
     m_uniformLocations[SHADER_DST_MAX_LUMINANCE]    = getUniform("dstMaxLuminance");
     m_uniformLocations[SHADER_DST_REF_LUMINANCE]    = getUniform("dstRefLuminance");
