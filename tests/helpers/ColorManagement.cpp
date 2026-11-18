@@ -151,9 +151,11 @@ TEST(ColorManagement, PQEncodingRangeIsIndependentOfContentPeak) {
     const SImageDescription DESC{
         .transferFunction = CM_TRANSFER_FUNCTION_ST2084_PQ,
         .luminances       = {.min = 0.1f, .max = 1000, .reference = 308},
+        .maxCLL           = 308,
     };
     EXPECT_FLOAT_EQ(DESC.getTFMinLuminance(), 0.1f);
     EXPECT_FLOAT_EQ(DESC.getTFMaxLuminance(), 0.1f + HDR_MAX_LUMINANCE - HDR_MIN_LUMINANCE);
+    EXPECT_FLOAT_EQ(DESC.getContentMaxLuminance(DESC.luminances.max), 308.0f);
 }
 
 TEST(ColorManagement, WindowsBT2100UsesHDRLuminances) {
